@@ -215,7 +215,8 @@ def test_extract_qrc_second_input_raw_scope():
 
     result = extract(
         acquisitions,
-        lengths={},
+        # RAW traces are trimmed to the acquisition window
+        lengths={uuid.UUID(acq_name): 2},
         acquisition=AcquisitionType.RAW,
         shape=(2, 2),
         sampling_rate=1.0,

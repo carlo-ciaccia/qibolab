@@ -341,7 +341,8 @@ class Cluster(Controller):
                             for slot, seqcfgs in _sequencer_configs.items()
                         },
                     )
-                    if options_.acquisition_type is AcquisitionType.INTEGRATION
+                    if options_.acquisition_type
+                    in (AcquisitionType.INTEGRATION, AcquisitionType.RAW)
                     else {}
                 )
                 psres.append(

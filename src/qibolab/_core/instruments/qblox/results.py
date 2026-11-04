@@ -112,12 +112,21 @@ def _integration(data: Integration, length: int) -> Result:
 
 def _scope(
     data: ScopeData,
+    length: int,
     frequency: float | None,
     sampling_rate: float,
     input_index: int = 0,
 ) -> Result:
     path = 2 * input_index
     res = np.array([data[f"path{path}"]["data"], data[f"path{path + 1}"]["data"]])
+    # The scope always records its whole memory: retain only the acquisition window,
+    # before demodulation, such that it is not affected by samples outside of it.
+    if res.shape[-1] < length:
+        raise ValueError(
+            f"Scope trace ({res.shape[-1]} samples) is shorter than the acquisition "
+            f"window ({length} samples)."
+        )
+    res = res[:, :length]
     # Demodulate scope data to baseband when a frequency is provided.
     if frequency is not None:
         res = demodulate(res, frequency, sampling_rate)
@@ -143,7 +152,9 @@ def _extract(
     if acquisition is AcquisitionType.DISCRIMINATION:
         return _classification(data["bins"]["threshold"])
     if acquisition is AcquisitionType.RAW:
-        return _scope(data["scope"], frequency, sampling_rate, input_index)
+        if length is None:
+            raise ValueError("Scope result extraction requires a length.")
+        return _scope(data["scope"], length, frequency, sampling_rate, input_index)
     return np.array([])
 
 
