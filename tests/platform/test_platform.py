@@ -1,5 +1,6 @@
 import pathlib
 from pathlib import Path
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -43,6 +44,24 @@ def test_platform_basics():
     )
     assert str(platform2) == "come va?"
     assert (1, 6) in platform2.pairs
+
+
+def test_disconnect_resets_connection_when_instrument_disconnect_fails():
+    instrument = Mock()
+    instrument.disconnect.side_effect = RuntimeError("stop failed")
+    platform = Platform(
+        name="disconnect test",
+        parameters=Parameters(native_gates=NativeGates()),
+        instruments={"instrument": instrument},
+        qubits={},
+    )
+    platform.is_connected = True
+
+    with pytest.raises(ExceptionGroup, match="disconnecting platform instruments"):
+        platform.disconnect()
+
+    instrument.disconnect.assert_called_once_with()
+    assert not platform.is_connected
 
 
 def test_platform_sampling_rate(platform):

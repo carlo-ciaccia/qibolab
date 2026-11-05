@@ -163,10 +163,18 @@ class Platform:
 
     def disconnect(self):
         """Disconnects from instruments."""
+        errors = []
         if self.is_connected:
             for instrument in self.instruments.values():
-                instrument.disconnect()
+                try:
+                    instrument.disconnect()
+                except Exception as error:  # noqa: BLE001
+                    errors.append(error)
         self.is_connected = False
+        if errors:
+            raise ExceptionGroup(
+                "Errors occurred while disconnecting platform instruments.", errors
+            )
 
     def termination_handler(self, signum, frame):
         self.disconnect()

@@ -184,16 +184,33 @@ class Cluster(Controller):
         """Disconnect and reset the instrument."""
         assert self._cluster is not None
 
-        # Ensure static flux offsets are reset before closing the connection to avoid
-        # heating the fridge.
-        self._set_dc_offsets_to_0()
+        errors = []
+        try:
+            # Ensure static flux offsets are reset before closing the connection to
+            # avoid heating the fridge.
+            self._set_dc_offsets_to_0()
+        except Exception as error:  # noqa: BLE001
+            errors.append(error)
 
         for module in self._modules.values():
-            module.stop_sequencer()
-        self._cluster.close()
-        self._cluster = None
-        self.__dict__.pop("_modules", None)
-        self._applied_seqcfgs = None
+            try:
+                module.stop_sequencer()
+            except Exception as error:  # noqa: BLE001
+                errors.append(error)
+
+        try:
+            self._cluster.close()
+        except Exception as error:  # noqa: BLE001
+            errors.append(error)
+        finally:
+            self._cluster = None
+            self.__dict__.pop("_modules", None)
+            self._applied_seqcfgs = None
+
+        if errors:
+            raise ExceptionGroup(
+                "Errors occurred while disconnecting Qblox cluster.", errors
+            )
 
     def _set_dc_offsets_to_0(self) -> None:
         flux_slot_to_ports: dict[SlotId, set[int]] = defaultdict(set)
