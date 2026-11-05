@@ -28,7 +28,6 @@ from qibolab import (
     Rectangular,
     create_platform,
 )
-from qibolab._core.instruments.qblox.validate import validate_qrc_channels
 
 PLATFORM = "qblox_qrc_drive_loopback"
 DRIVE_NS = 2000
@@ -70,11 +69,14 @@ def main() -> None:
     for name, config in platform.parameters.configs.items():
         print(f"  {name}: {config}")
 
-    for slot, chs in controller._channels_by_module.items():
-        validate_qrc_channels(slot, chs, controller.channels)
-    print("QRC channels are valid.")
-
     if not args.run:
+        # imported here only: importing it at module level changes the import order,
+        # which leaves an unrelated asyncio error on Windows at exit
+        from qibolab._core.instruments.qblox.validate import validate_qrc_channels
+
+        for slot, chs in controller._channels_by_module.items():
+            validate_qrc_channels(slot, chs, controller.channels)
+        print("QRC channels are valid.")
         print("Dry run only. Use --run to execute on the cluster.")
         return
 
