@@ -1,6 +1,4 @@
-from typing import cast
-
-from qibolab._core.components import AcquisitionChannel, Channel
+from qibolab._core.components import AcquisitionChannel, Channel, IqChannel
 from qibolab._core.execution_parameters import (
     AcquisitionType,
     ExecutionParameters,
@@ -17,6 +15,7 @@ from .limits import (
     ACQUISITION_MEMORY,
     ACQUISITION_NUMBER,
     QCM_INSTRUCTION_MEMORY,
+    QRC_OUTPUTS,
     QRC_READOUT_PORTS,
     QRC_SEQUENCERS,
     QRM_INSTRUCTION_MEMORY,
@@ -27,6 +26,7 @@ from .limits import (
     WEIGHT_NUMBER,
 )
 from .q1asm.ast_ import Line
+from .qrc import assign_sequencers
 from .sequence.acquisition import Acquisition, Weight
 from .sequence.sequence import Q1Sequence
 from .sequence.waveforms import Waveform
@@ -167,34 +167,67 @@ def validate_qrc_channels(
 ) -> None:
     """Validate the channels assigned to a QRC module.
 
-    Only readout is supported: each acquisition channel must sit on a paired
-    input/output port (``io1`` or ``io2``) shared with its probe channel.
+    Two kinds of channels are supported:
+
+    - readout: each acquisition channel must sit on a paired input/output port (``io1``
+      or ``io2``) shared with its probe channel
+    - drive: IQ channels on any of the outputs ``o1`` to ``o6``, as long as the output
+      is not already used as a readout probe
+
+    Besides, a sequencer must be available for each channel, according to the
+    outputs they can reach (cf. :func:`.qrc.assign_sequencers`).
     """
     if len(channels) > QRC_SEQUENCERS:
         raise ValueError(
-            f"QRC slot {slot} has only {QRC_SEQUENCERS} readout sequencers; "
+            f"QRC slot {slot} has only {QRC_SEQUENCERS} sequencers; "
             f"{len(channels)} channels are configured."
         )
-    if any(not isinstance(all_channels[ch], AcquisitionChannel) for ch, _ in channels):
-        raise NotImplementedError(
-            "QRC control-output channels are not supported yet; "
-            "only readout channels can be configured."
-        )
+
+    probed = set()
     for ch, address in channels:
-        acquisition = cast(AcquisitionChannel, all_channels[ch])
-        probe = all_channels.get(acquisition.probe)
-        probe_address = PortAddress.from_path(probe.path) if probe is not None else None
+        channel = all_channels[ch]
+        if isinstance(channel, AcquisitionChannel):
+            probe = all_channels.get(channel.probe)
+            probe_address = (
+                PortAddress.from_path(probe.path) if probe is not None else None
+            )
+            if (
+                not address.input
+                or address.ports[0] not in QRC_READOUT_PORTS
+                or address.ports[1] is not None
+                or probe_address is None
+                or probe_address.input
+                or probe_address.slot != address.slot
+                or probe_address.ports[0] != address.ports[0]
+                or probe_address.ports[1] is not None
+            ):
+                raise NotImplementedError(
+                    "QRC readout currently requires a matching probe and "
+                    "acquisition on paired IO port 1 or 2."
+                )
+            probed.add(address.ports[0])
+        elif not isinstance(channel, IqChannel):
+            raise NotImplementedError(
+                "QRC supports only readout and IQ drive channels, "
+                f"not {type(channel).__name__} ({ch!r})."
+            )
+
+    for ch, address in channels:
+        if not isinstance(all_channels[ch], IqChannel):
+            continue
         if (
-            not address.input
-            or address.ports[0] not in QRC_READOUT_PORTS
+            address.input
             or address.ports[1] is not None
-            or probe_address is None
-            or probe_address.input
-            or probe_address.slot != address.slot
-            or probe_address.ports[0] != address.ports[0]
-            or probe_address.ports[1] is not None
+            or not 1 <= address.ports[0] <= QRC_OUTPUTS
         ):
             raise NotImplementedError(
-                "QRC readout currently requires a matching probe and "
-                "acquisition on paired IO port 1 or 2."
+                f"QRC drive channel {ch!r} must sit on a single output port "
+                f"(o1 to o{QRC_OUTPUTS}), not on {address.local_address!r}."
             )
+        if address.ports[0] in probed:
+            raise ValueError(
+                f"QRC output o{address.ports[0]} of drive channel {ch!r} is already "
+                "used by a readout probe."
+            )
+
+    assign_sequencers(channels)

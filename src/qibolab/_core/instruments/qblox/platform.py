@@ -18,9 +18,11 @@ def _chtype(mod: str, input: bool) -> tuple[str, type[Channel]]:
     if mod.startswith("qcm"):
         return "flux", DcChannel
     if mod.startswith("qrc"):
+        # readout is always mapped through the paired `io` ports, so plain outputs
+        # are drive lines
         if input:
             return "acquisition", AcquisitionChannel
-        return "probe", IqChannel
+        return "drive", IqChannel
     if mod.startswith("qrm_rf"):
         if input:
             return "acquisition", AcquisitionChannel

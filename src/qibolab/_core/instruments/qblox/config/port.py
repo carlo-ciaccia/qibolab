@@ -17,6 +17,7 @@ from qibolab._core.components.filters import (
 from qibolab._core.serialize import Model
 
 from ..identifiers import SlotId
+from ..limits import QRC_ATTENUATION_STEP, QRC_MAX_ATTENUATION
 
 __all__ = []
 
@@ -141,7 +142,7 @@ class PortConfig(BaseModel):
     # LO parameters
     lo_en: bool | None = None
     lo_freq: int | None = None
-    att: int | None = None
+    att: int | float | None = None
     # mixer calibration
     offset_path0: float | None = None
     offset_path1: float | None = None
@@ -193,8 +194,16 @@ class PortConfig(BaseModel):
         port = cls(path=path)
 
         if is_qrc_type:
-            if acq and in_out and lo is not None:
+            if lo is None:
+                return port
+            # the LO frequency is shared by the paired ports, e.g. `out0_in0` (cf.
+            # `ModuleConfig.build`, which maps drive channels on `out0` and `out1`)
+            if (acq and in_out) or (drive and only_out):
                 port.lo(lo, qrc=True)
+            # input and output attenuators are separate, and both follow the power of
+            # the (shared) LO, as the attenuation is -power
+            if (acq and in_ and not out) or (only_out and (acq or drive)):
+                port.qrc_att(lo)
             return port
 
         # delay compensation is applied by default on all output ports - time-of-flight
@@ -244,6 +253,18 @@ class PortConfig(BaseModel):
 
     def att_(self, lo: OscillatorConfig) -> None:
         self.att = -int(lo.power)
+
+    def qrc_att(self, lo: OscillatorConfig) -> None:
+        """Set the attenuation of a QRC port, from the (negative) LO power in dB."""
+        att = -lo.power
+        steps = att / QRC_ATTENUATION_STEP
+        if not 0 <= att <= QRC_MAX_ATTENUATION or abs(steps - round(steps)) > 1e-9:
+            raise ValueError(
+                f"QRC attenuation of port {self.path!r} (minus the LO power, {att} dB) "
+                f"must be a multiple of {QRC_ATTENUATION_STEP} dB in the range "
+                f"[0, {QRC_MAX_ATTENUATION}] dB."
+            )
+        self.att = int(att) if float(att).is_integer() else att
 
     def mixer(self, mixer: MixerOffsetConfig) -> None:
         self.offset_path0 = mixer.offset_i

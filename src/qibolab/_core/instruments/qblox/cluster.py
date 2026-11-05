@@ -37,6 +37,7 @@ from .config import PortAddress
 from .identifiers import SequencerMap, SlotId
 from .limits import QRC_SEQUENCERS
 from .log import Logger
+from .qrc import assign_sequencers
 from .results import AcquiredData, extract, integration_lengths
 from .sequence import Q1Sequence, compile
 from .utils import (
@@ -461,8 +462,13 @@ class Cluster(Controller):
             )
             assert sequencer_count >= len(chs)
 
+            # on the QRC, the reachable outputs depend on the sequencer, so the
+            # assignment can not just follow the channels order
+            qrc_sequencers = assign_sequencers(chs) if module.is_qrc_type else {}
+
             seqcfgs[slot] = {}
-            for idx, (ch, address) in enumerate(chs):
+            for position, (ch, address) in enumerate(chs):
+                idx = qrc_sequencers.get(ch, position)
                 # Only configure and register sequencer for active channels. For passive
                 # channels the sequencer operations are not relevant, e.g. a flux
                 # channel with no registered pulse will still set an offset, but this

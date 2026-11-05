@@ -19,11 +19,29 @@ Controllers (subclasses of :class:`qibolab._core.instruments.abstract.Controller
     - Quantum Machines: :class:`qibolab.instruments.qm.QmController`
     - Qibosoq-controlled RFSoC: :class:`qibolab.instruments.qibosoq.RFSoC`
 
-**Qblox QRC support.** The Qblox driver supports readout on the QRC module's paired
-output/input ports ``io1`` and ``io2``, with at most 8 readout channels per module
-(one sequencer each). The following are not supported yet:
+**Qblox QRC support.** The Qblox driver supports two kinds of channels on the QRC
+module, each served by its own sequencer (12 per module, 8 of which have an acquisition
+path):
 
-- QRC control-output (drive) channels and multiplexed routing;
+- readout on the paired output/input ports ``io1`` and ``io2``;
+- drive (:class:`qibolab.IqChannel`) on any of the outputs ``o1`` to ``o6``, provided
+  the output is not also used as a readout probe. Each drive channel needs an LO
+  (a ``qrc/out{n}`` oscillator configuration).
+
+Which outputs a sequencer can reach is a hardware constraint: sequencers 0-7 reach the
+outputs ``o1`` and ``o2`` plus one more each (sequencers ``s`` and ``s + 4`` reach
+``o{3 + s % 4}``), while the control-only sequencers 8-11 reach ``o3`` to ``o6``. The
+driver assigns sequencers accordingly, and rejects layouts for which no assignment
+exists when connecting to the cluster.
+
+The LOs of ``o1`` and ``o2`` are shared with the inputs ``i1`` and ``i2``
+(``qrc/out0_in0``, ``qrc/out1_in1``). The input and output attenuators follow the
+power of the LO of their port, in dB with opposite sign (e.g. a power of ``-20`` sets
+20 dB), in steps of 0.5 dB.
+
+The following are not supported yet:
+
+- multiplexed readout routing;
 - IQ-imbalance corrections (``scale_q``, ``phase_q``), which are ignored with a warning,
   since the QRC has no configurable mixer corrections;
 - channel layouts violating the above, which are rejected when connecting to the cluster.

@@ -56,13 +56,29 @@ SCOPE_MEMORY = 2**14
 https://docs.qblox.com/en/v2026.08.0/products/qblox_instruments/tutorials/QRM/030_scope_acquisition.html
 """
 
-QRC_SEQUENCERS = 8
-"""Number of readout sequencers available on a QRC module."""
+QRC_SEQUENCERS = 12
+"""Number of sequencers available on a QRC module.
+
+The first :data:`QRC_READOUT_SEQUENCERS` also have an acquisition path, the others
+can only drive outputs.
+"""
+QRC_READOUT_SEQUENCERS = 8
+"""Number of QRC sequencers with an acquisition path."""
+QRC_OUTPUTS = 6
+"""Number of RF outputs of a QRC module."""
 QRC_READOUT_PORTS = frozenset({1, 2})
 """Paired output/input (``io``) ports usable for readout on a QRC module.
 
 Port numbers are 1-based in the qibolab channel path (``io1``), while the hardware
 parameters are 0-based (``out0_in0``).
+"""
+QRC_ATTENUATION_STEP = 0.5
+"""Resolution of the QRC input and output attenuators, in dB."""
+QRC_MAX_ATTENUATION = 31.5
+"""Upper bound of the QRC attenuators, in dB.
+
+The actual maximum depends on the frequency (20.5-31.5 dB), and is checked by the
+hardware driver.
 """
 
 SEQUENCER_REGISTERS = 64

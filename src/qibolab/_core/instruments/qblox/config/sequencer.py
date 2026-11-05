@@ -18,6 +18,7 @@ from qibolab._core.execution_parameters import AcquisitionType
 from qibolab._core.identifier import ChannelId
 from qibolab._core.serialize import Model
 
+from ..limits import QRC_OUTPUTS, QRC_READOUT_PORTS
 from ..q1asm.ast_ import Acquire, Line
 from ..sequence import Q1Sequence
 from .port import PortAddress
@@ -166,15 +167,22 @@ class SequencerConfig(Model):
         """
         if old is None and self.address is not None:
             if qrc:
-                match = re.fullmatch(r"io([01])", self.address)
-                if match is None:
+                match = re.fullmatch(r"(io|out)(\d)", self.address)
+                if match is None or int(match[2]) >= QRC_OUTPUTS:
+                    raise ValueError(
+                        f"Unsupported QRC connection {self.address!r}; expected "
+                        f"io0 or io1 (readout), or out0 to out{QRC_OUTPUTS - 1} "
+                        "(drive)."
+                    )
+                kind, port = match[1], int(match[2])
+                if kind == "io" and port not in {p - 1 for p in QRC_READOUT_PORTS}:
                     raise ValueError(
                         f"Unsupported QRC readout connection {self.address!r}; "
                         "expected io0 or io1."
                     )
-                port = match[1]
                 seq.parameters[f"connect_out{port}"].set("IQ")
-                seq.parameters["connect_acq"].set(f"in{port}")
+                if kind == "io":
+                    seq.parameters["connect_acq"].set(f"in{port}")
             else:
                 seq.connect_sequencer(self.address)
 

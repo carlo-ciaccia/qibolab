@@ -1,3 +1,4 @@
+import re
 from enum import Flag, auto
 from typing import Annotated, Any, Literal, cast
 
@@ -38,6 +39,25 @@ def mixers(
         for id_, mixer in all.items()
         if id_ in module_channels
     }
+
+
+def _share_qrc_lo(ports: dict[str, Any]) -> dict[str, Any]:
+    """Map the LOs of the QRC outputs 0 and 1 to the ones shared with the inputs.
+
+    The first two outputs share their LO with the corresponding input (e.g.
+    ``out0_in0_lo_freq``), whether they are used for readout or for drive. The latter
+    is addressed through its output only.
+    """
+    result: dict[str, Any] = {}
+    for key, value in ports.items():
+        shared = re.sub(r"^out([01])_lo_freq$", r"out\1_in\1_lo_freq", key)
+        if shared in result and result[shared] != value:
+            raise ValueError(
+                f"Inconsistent QRC LO frequencies on {shared!r}: "
+                f"{result[shared]} and {value}."
+            )
+        result[shared] = value
+    return result
 
 
 class ModuleType(Flag):
@@ -143,17 +163,18 @@ class ModuleConfig(Model):
         # let's check consistency, and deduplicate them
         ports = port.deduplicate_configs(ports)
 
-        return cls(
-            # since in Qblox port configurations are actually module configurations, we
-            # "unroll" them here, just merging all the configurations for the present
-            # module in a single dictionary, in which port configurations are just
-            # prefixed by their path
-            ports={
-                f"{path}_{k}": v
-                for path, configs in ports.items()
-                for k, v in configs.items()
-            }
-        )
+        flat = {
+            f"{path}_{k}": v
+            for path, configs in ports.items()
+            for k, v in configs.items()
+        }
+        if is_qrc_type:
+            flat = _share_qrc_lo(flat)
+        # since in Qblox port configurations are actually module configurations, we
+        # "unroll" them here, just merging all the configurations for the present
+        # module in a single dictionary, in which port configurations are just
+        # prefixed by their path
+        return cls(ports=flat)
 
     @staticmethod
     def _set_option(mod: Module, name: str, metadata: list, value: Any) -> None:
