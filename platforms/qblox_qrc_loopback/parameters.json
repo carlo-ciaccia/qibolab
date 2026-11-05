@@ -16,7 +16,7 @@
     "qrc/out0_in0": {
       "kind": "oscillator",
       "frequency": 5e9,
-      "power": 0.0
+      "power": -20.0
     }
   },
   "native_gates": {}

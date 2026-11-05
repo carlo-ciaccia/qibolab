@@ -1,0 +1,32 @@
+{
+  "settings": {
+    "nshots": 256,
+    "relaxation_time": 0
+  },
+  "configs": {
+    "q0/probe": {
+      "kind": "iq",
+      "frequency": 5.05e9
+    },
+    "q0/drive": {
+      "kind": "iq",
+      "frequency": 5.05e9
+    },
+    "q0/acquisition": {
+      "kind": "acquisition",
+      "delay": 100,
+      "smearing": 0.0
+    },
+    "qrc/out1_in1": {
+      "kind": "oscillator",
+      "frequency": 5e9,
+      "power": -20.0
+    },
+    "qrc/out2": {
+      "kind": "oscillator",
+      "frequency": 5e9,
+      "power": -20.0
+    }
+  },
+  "native_gates": {}
+}
