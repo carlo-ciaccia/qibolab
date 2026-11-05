@@ -141,3 +141,6 @@ debug/
 .devenv
 .DS_Store
 .DS_Store
+
+# Claude Code guidance
+CLAUDE.md
