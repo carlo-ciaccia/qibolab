@@ -144,3 +144,6 @@ debug/
 
 # Claude Code guidance
 CLAUDE.md
+
+# Generated plots
+*.png
