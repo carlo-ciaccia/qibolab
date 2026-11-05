@@ -1,0 +1,23 @@
+{
+  "settings": {
+    "nshots": 100,
+    "relaxation_time": 0
+  },
+  "configs": {
+    "q0/probe": {
+      "kind": "iq",
+      "frequency": 3e9
+    },
+    "q0/acquisition": {
+      "kind": "acquisition",
+      "delay": 200e-9,
+      "smearing": 0.0
+    },
+    "qrm_rf/o1/lo": {
+      "kind": "oscillator",
+      "frequency": 3e9,
+      "power": 0.0
+    }
+  },
+  "native_gates": {}
+}
