@@ -187,7 +187,15 @@ class Cluster(Controller):
     def _validate_modules(self) -> None:
         """Check channel assignments against the modules' capabilities."""
         for slot, channels in self._channels_by_module.items():
-            if self._modules[slot].is_qrc_type:
+            try:
+                is_qrc = self._modules[slot].is_qrc_type
+            except KeyError as error:
+                raise RuntimeError(
+                    f"Module in slot {slot} is not available. The cluster may still "
+                    "be booting (e.g. right after a reboot or update), or the module "
+                    "is absent."
+                ) from error
+            if is_qrc:
                 validate_qrc_channels(slot, channels, self.channels)
 
     def disconnect(self) -> None:

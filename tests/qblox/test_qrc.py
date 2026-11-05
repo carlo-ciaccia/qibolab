@@ -9,6 +9,7 @@ from qblox_instruments.types import ClusterType
 
 from qibolab._core.components import AcquisitionConfig, IqConfig, OscillatorConfig
 from qibolab._core.execution_parameters import AcquisitionType
+from qibolab._core.instruments.qblox.cluster import Cluster
 from qibolab._core.instruments.qblox.config.module import ModuleConfig
 from qibolab._core.instruments.qblox.config.port import PortAddress
 from qibolab._core.instruments.qblox.config.sequencer import SequencerConfig
@@ -146,3 +147,17 @@ def test_qrc_sequencer_warns_on_ignored_iq_corrections():
             rf=True,
             qrc=True,
         )
+
+
+def test_validate_modules_reports_unavailable_module():
+    class UnavailableModule:
+        @property
+        def is_qrc_type(self):
+            raise KeyError("Module at slot 7 is not available.")
+
+    channels, _ = _readout_channels()
+    cluster = Cluster(name="qrc_unavailable", address="dummy", channels=channels)
+    cluster.__dict__["_modules"] = {7: UnavailableModule()}
+
+    with pytest.raises(RuntimeError, match="may still be booting"):
+        cluster._validate_modules()
