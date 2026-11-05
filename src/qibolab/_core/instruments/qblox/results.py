@@ -103,9 +103,10 @@ class IndexedData(TypedDict):
 AcquiredData = dict[str, IndexedData]
 
 
-def _integration(data: Integration, length: int, input_index: int = 0) -> Result:
-    path = 2 * input_index
-    res = np.array([data[f"path{path}"], data[f"path{path + 1}"]])
+def _integration(data: Integration, length: int) -> Result:
+    # bins are per sequencer: on the QRC too, the input it is connected to is selected
+    # by `connect_acq`, and its result is always reported on the first IQ pair
+    res = np.array([data["path0"], data["path1"]])
     return np.moveaxis(res, 0, -1) / length
 
 
@@ -138,7 +139,7 @@ def _extract(
     if acquisition is AcquisitionType.INTEGRATION:
         if length is None:
             raise ValueError("Integration result extraction requires a length.")
-        return _integration(data["bins"]["integration"], length, input_index)
+        return _integration(data["bins"]["integration"], length)
     if acquisition is AcquisitionType.DISCRIMINATION:
         return _classification(data["bins"]["threshold"])
     if acquisition is AcquisitionType.RAW:

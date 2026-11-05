@@ -151,7 +151,7 @@ def test_extract_integration():
     np.testing.assert_allclose(value, [1.0, 0.5])
 
 
-def test_extract_qrc_second_input_integration():
+def test_extract_qrc_second_input_integration_uses_first_iq_pair():
     acq_name = str(uuid.uuid4())
     acquisitions = {
         "q0/acquisition": {
@@ -161,10 +161,8 @@ def test_extract_qrc_second_input_integration():
                     "scope": {},
                     "bins": {
                         "integration": {
-                            "path0": [],
-                            "path1": [],
-                            "path2": [6.0],
-                            "path3": [8.0],
+                            "path0": [6.0],
+                            "path1": [8.0],
                         },
                         "threshold": [],
                         "valid": [],
