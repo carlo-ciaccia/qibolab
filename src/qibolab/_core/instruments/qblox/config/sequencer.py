@@ -1,4 +1,6 @@
 import json
+import re
+import warnings
 from typing import cast
 
 import numpy as np
@@ -80,6 +82,7 @@ class SequencerConfig(Model):
         acquisition: AcquisitionType,
         rf: bool,
         sequence: Q1Sequence | None = None,
+        qrc: bool = False,
     ) -> "SequencerConfig":
         config = configs[channel_id]
 
@@ -101,8 +104,8 @@ class SequencerConfig(Model):
             ),
             # configure the sequencers to synchronize
             sync_en=True,
-            # modulation, only enabled for RF modules
-            mod_en_awg=rf,
+            # QRC modulation and demodulation are always enabled by the hardware.
+            mod_en_awg=rf if not qrc else None,
         )
 
         # acquisition
@@ -118,8 +121,10 @@ class SequencerConfig(Model):
                 # threshold needs to be compensated by length
                 # see: https://docs.qblox.com/en/main/api_reference/sequencer.html#Sequencer.thresholded_acq_threshold
                 cfg.thresholded_acq_threshold = config.threshold * length
-            # demodulation
-            cfg.demod_en_acq = acquisition is not AcquisitionType.RAW
+            # demodulation (always on for QRC: RAW scope data there is not guaranteed
+            # to be un-demodulated, to be confirmed on hardware)
+            if not qrc:
+                cfg.demod_en_acq = acquisition is not AcquisitionType.RAW
 
         # set NCO frequency
         # note that probe channels also include readout ones (probe+acquisition), thus
@@ -132,21 +137,46 @@ class SequencerConfig(Model):
             assert probe_.lo is not None
             lo_freq = cast(OscillatorConfig, configs[probe_.lo]).frequency
             cfg.nco_freq = int(probe_config.frequency - lo_freq)
-            cfg.mixer_corr_gain_ratio = probe_config.scale_q
-            # imbalance corrections are stored in radians, while the Qblox parameter
-            # is in degrees (accepting values in the [-45, 45] range)
-            cfg.mixer_corr_phase_offset_degree = np.degrees(probe_config.phase_q)
+            if qrc:
+                # the QRC has no configurable IQ mixer corrections
+                if probe_config.scale_q != 1.0 or probe_config.phase_q != 0.0:
+                    warnings.warn(
+                        f"Channel {probe!r}: IQ imbalance corrections (scale_q, "
+                        "phase_q) are not supported on QRC modules and are ignored.",
+                        stacklevel=2,
+                    )
+            else:
+                cfg.mixer_corr_gain_ratio = probe_config.scale_q
+                # imbalance corrections are stored in radians, while the Qblox
+                # parameter is in degrees (accepting values in the [-45, 45] range)
+                cfg.mixer_corr_phase_offset_degree = np.degrees(probe_config.phase_q)
 
         return cfg
 
-    def apply(self, seq: Sequencer, old: "SequencerConfig | None" = None):
+    def apply(
+        self,
+        seq: Sequencer,
+        old: "SequencerConfig | None" = None,
+        qrc: bool = False,
+    ):
         """Configure sequencer-wide settings.
 
         If ``old`` (the currently applied config) is given, skip connecting and only
         set changed parameters, plus the ones in :data:`_UNTRACKED_SEQUENCER_ATTRS`.
         """
         if old is None and self.address is not None:
-            seq.connect_sequencer(self.address)
+            if qrc:
+                match = re.fullmatch(r"io([01])", self.address)
+                if match is None:
+                    raise ValueError(
+                        f"Unsupported QRC readout connection {self.address!r}; "
+                        "expected io0 or io1."
+                    )
+                port = match[1]
+                seq.parameters[f"connect_out{port}"].set("IQ")
+                seq.parameters["connect_acq"].set(f"in{port}")
+            else:
+                seq.connect_sequencer(self.address)
 
         # values already applied
         applied = {"address"}

@@ -2,6 +2,7 @@ from functools import reduce
 from typing import cast
 
 import numpy as np
+from qblox_instruments.qcodes_drivers.module import Module
 
 from qibolab._core.components import AcquisitionConfig, Configs, OscillatorConfig
 from qibolab._core.execution_parameters import AveragingMode, ExecutionParameters
@@ -92,3 +93,8 @@ def time_of_flights(configs: Configs) -> dict[ChannelId, float]:
         for ch, config in configs.items()
         if isinstance(config, AcquisitionConfig)
     }
+
+
+def has_inputs(module: Module) -> bool:
+    """Whether the module can acquire, i.e. it is a QRM-like or a QRC module."""
+    return module.is_qrm_type or module.is_qrc_type

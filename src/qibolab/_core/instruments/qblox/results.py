@@ -4,7 +4,6 @@ from typing import TypedDict
 from uuid import UUID
 
 import numpy as np
-from qblox_instruments.qcodes_drivers.module import Module
 
 from qibolab._core.execution_parameters import AcquisitionType
 from qibolab._core.identifier import ChannelId, Result
@@ -30,24 +29,34 @@ def _fill_empty_lenghts(
 def integration_lengths(
     sequences: dict[ChannelId, Q1Sequence],
     sequencers: SequencerMap,
-    modules: dict[SlotId, Module],
+    configured_lengths: dict[SlotId, dict[SequencerId, int | None]],
 ) -> dict[acquisition.MeasureId, int]:
     channels_to_sequencer = {
         ch: (mod, seq) for mod, chs in sequencers.items() for ch, seq in chs.items()
     }
+    lengths = reduce(or_, (seq.integration_lengths for seq in sequences.values()))
+    locations = {
+        acq: channels_to_sequencer[ch]
+        for ch, seq in sequences.items()
+        for acq in seq.acquisitions
+    }
+    required_defaults = {
+        locations[acq] for acq, length in lengths.items() if length is None
+    }
+    defaults = {}
+    for mod_id, seq_id in required_defaults:
+        length = configured_lengths.get(mod_id, {}).get(seq_id)
+        if length is None:
+            raise ValueError(
+                f"No configured integration length for module {mod_id}, "
+                f"sequencer {seq_id}."
+            )
+        defaults[mod_id, seq_id] = length
+
     return _fill_empty_lenghts(
-        reduce(or_, (seq.integration_lengths for seq in sequences.values())),
-        {
-            (mod_id, i): seq.integration_length_acq()
-            for mod_id, mod in modules.items()
-            for i, seq in enumerate(mod.sequencers)
-            if hasattr(seq, "integration_length_acq")
-        },
-        {
-            acq: channels_to_sequencer[ch]
-            for ch, seq in sequences.items()
-            for acq in seq.acquisitions
-        },
+        lengths,
+        defaults,
+        locations,
     )
 
 
@@ -60,11 +69,15 @@ IndividualScope = TypedDict(
 class ScopeData(TypedDict):
     path0: IndividualScope
     path1: IndividualScope
+    path2: IndividualScope
+    path3: IndividualScope
 
 
 class Integration(TypedDict):
     path0: list[float]
     path1: list[float]
+    path2: list[float]
+    path3: list[float]
 
 
 Thresholded = list[int]
@@ -90,13 +103,20 @@ class IndexedData(TypedDict):
 AcquiredData = dict[str, IndexedData]
 
 
-def _integration(data: Integration, length: int) -> Result:
-    res = np.array([data["path0"], data["path1"]])
+def _integration(data: Integration, length: int, input_index: int = 0) -> Result:
+    path = 2 * input_index
+    res = np.array([data[f"path{path}"], data[f"path{path + 1}"]])
     return np.moveaxis(res, 0, -1) / length
 
 
-def _scope(data: ScopeData, frequency: float | None, sampling_rate: float) -> Result:
-    res = np.array([data["path0"]["data"], data["path1"]["data"]])
+def _scope(
+    data: ScopeData,
+    frequency: float | None,
+    sampling_rate: float,
+    input_index: int = 0,
+) -> Result:
+    path = 2 * input_index
+    res = np.array([data[f"path{path}"]["data"], data[f"path{path + 1}"]["data"]])
     # Demodulate scope data to baseband when a frequency is provided.
     if frequency is not None:
         res = demodulate(res, frequency, sampling_rate)
@@ -107,6 +127,25 @@ def _classification(data: Thresholded) -> Result:
     return np.array(data)
 
 
+def _extract(
+    data: Data,
+    length: int | None,
+    acquisition: AcquisitionType,
+    input_index: int,
+    frequency: float | None,
+    sampling_rate: float,
+) -> Result:
+    if acquisition is AcquisitionType.INTEGRATION:
+        if length is None:
+            raise ValueError("Integration result extraction requires a length.")
+        return _integration(data["bins"]["integration"], length, input_index)
+    if acquisition is AcquisitionType.DISCRIMINATION:
+        return _classification(data["bins"]["threshold"])
+    if acquisition is AcquisitionType.RAW:
+        return _scope(data["scope"], frequency, sampling_rate, input_index)
+    return np.array([])
+
+
 def extract(
     acquired_data: dict[ChannelId, AcquiredData],
     lengths: dict[acquisition.MeasureId, int],
@@ -114,24 +153,18 @@ def extract(
     shape: tuple[int, ...],
     sampling_rate: float,
     frequencies: dict[ChannelId, float],
+    input_indices: dict[ChannelId, int] | None = None,
 ) -> dict[PulseId, Result]:
     # TODO: check if the `lengths` info coincide with the
     # idata["acquisition"]["bins"]["avg_cnt"]
     return {
-        UUID(acq): (
-            _integration(
-                idata["acquisition"]["bins"]["integration"], lengths[UUID(acq)]
-            )
-            if acquisition is AcquisitionType.INTEGRATION
-            else _classification(idata["acquisition"]["bins"]["threshold"])
-            if acquisition is AcquisitionType.DISCRIMINATION
-            else _scope(
-                idata["acquisition"]["scope"],
-                frequencies.get(channel, None),
-                sampling_rate,
-            )
-            if acquisition is AcquisitionType.RAW
-            else np.array([])
+        UUID(acq): _extract(
+            idata["acquisition"],
+            lengths.get(UUID(acq)),
+            acquisition,
+            (input_indices or {}).get(channel, 0),
+            frequencies.get(channel, None),
+            sampling_rate,
         ).reshape(shape)
         for channel, data in acquired_data.items()
         for acq, idata in data.items()

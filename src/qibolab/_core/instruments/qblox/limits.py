@@ -56,6 +56,15 @@ SCOPE_MEMORY = 2**14
 https://docs.qblox.com/en/v2026.08.0/products/qblox_instruments/tutorials/QRM/030_scope_acquisition.html
 """
 
+QRC_SEQUENCERS = 8
+"""Number of readout sequencers available on a QRC module."""
+QRC_READOUT_PORTS = frozenset({1, 2})
+"""Paired output/input (``io``) ports usable for readout on a QRC module.
+
+Port numbers are 1-based in the qibolab channel path (``io1``), while the hardware
+parameters are 0-based (``out0_in0``).
+"""
+
 SEQUENCER_REGISTERS = 64
 """Number of registers available in the Q1 sequencer.
 

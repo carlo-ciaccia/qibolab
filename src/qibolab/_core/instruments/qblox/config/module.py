@@ -9,6 +9,7 @@ from qibolab._core.components.configs import Configs, MixerOffsetConfig
 from qibolab._core.identifier import ChannelId
 from qibolab._core.serialize import Model
 
+from ..utils import has_inputs
 from . import port
 
 __all__ = []
@@ -89,11 +90,15 @@ class ModuleConfig(Model):
         los: dict[ChannelId, OscillatorConfig],
         mixers: dict[ChannelId, MixerOffsetConfig],
         is_qcm_non_rf_type: bool,
+        is_qrc_type: bool = False,
     ) -> "ModuleConfig":
         # generate port configurations as a dictionary
         def portconfig(*args, **kwargs) -> tuple[str, port.StrDict]:
             p = port.PortConfig.build(
-                *args, is_qcm_non_rf_type=is_qcm_non_rf_type, **kwargs
+                *args,
+                is_qcm_non_rf_type=is_qcm_non_rf_type,
+                is_qrc_type=is_qrc_type,
+                **kwargs,
             )
             return (p.path, p.model_dump(exclude_unset=True))
 
@@ -168,14 +173,13 @@ class ModuleConfig(Model):
 
         mod.parameters[name].set(value)
 
-    def apply(self, mod: Module) -> None:
+    def apply(self, mod: Module, disconnect: bool = True) -> None:
         """Configure module-wide settings."""
-        # first disable all default sequencer connections
-        mod.disconnect_outputs()
-
-        if mod.is_qrm_type:
-            # including input ones, if QRM
-            mod.disconnect_inputs()
+        if disconnect:
+            # First disable all default sequencer connections.
+            mod.disconnect_outputs()
+            if has_inputs(mod):
+                mod.disconnect_inputs()
 
         for config, value in self.ports.items():
             mod.parameters[config].set(value)

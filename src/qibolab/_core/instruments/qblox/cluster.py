@@ -35,17 +35,20 @@ from . import config
 from .batching import batch_sequences_by_cluster_memory_limits
 from .config import PortAddress
 from .identifiers import SequencerMap, SlotId
+from .limits import QRC_SEQUENCERS
 from .log import Logger
 from .results import AcquiredData, extract, integration_lengths
 from .sequence import Q1Sequence, compile
 from .utils import (
     batch_shots,
     concat_shots,
+    has_inputs,
     lo_configs,
     time_of_flights,
 )
 from .validate import (
     assert_channels_exclusion,
+    validate_qrc_channels,
     validate_raw_duration,
     validate_raw_options,
     validate_sequence,
@@ -179,6 +182,13 @@ class Cluster(Controller):
         self._cluster = find_or_create_instrument(
             qblox.Cluster, recreate=True, name=self.name, identifier=self.address
         )
+        self._validate_modules()
+
+    def _validate_modules(self) -> None:
+        """Check channel assignments against the modules' capabilities."""
+        for slot, channels in self._channels_by_module.items():
+            if self._modules[slot].is_qrc_type:
+                validate_qrc_channels(slot, channels, self.channels)
 
     def disconnect(self) -> None:
         """Disconnect and reset the instrument."""
@@ -229,7 +239,7 @@ class Cluster(Controller):
         # We combine as many sequences as possible in a single batch, according to the
         # cluster memory limits (shots are further split by batch_shots if needed).
         qrm_slots = {
-            slot for slot, module in self._modules.items() if module.is_qrm_type
+            slot for slot, module in self._modules.items() if has_inputs(module)
         }
         qrm_channels = {
             channelid
@@ -281,9 +291,10 @@ class Cluster(Controller):
 
                 for channelid, seq in sequences_.items():
                     slot = PortAddress.from_path(self.channels[channelid].path).slot
+                    module = self._modules[slot]
                     validate_sequence(
                         sequence=seq,
-                        is_qrm=self._modules[slot].is_qrm_type,
+                        is_qrm=has_inputs(module),
                         acquisition_type=options_.acquisition_type,
                     )
 
@@ -310,7 +321,17 @@ class Cluster(Controller):
 
                 # process raw results to adhere to standard format
                 lengths = (
-                    integration_lengths(sequences_, sequencers, self._modules)
+                    integration_lengths(
+                        sequences_,
+                        sequencers,
+                        {
+                            slot: {
+                                index: seqcfg.integration_length_acq
+                                for index, seqcfg in seqcfgs.items()
+                            }
+                            for slot, seqcfgs in _sequencer_configs.items()
+                        },
+                    )
                     if options_.acquisition_type is AcquisitionType.INTEGRATION
                     else {}
                 )
@@ -322,6 +343,16 @@ class Cluster(Controller):
                         shape=options_.results_shape(sweepers_),
                         sampling_rate=self.sampling_rate * scipy.constants.giga,
                         frequencies=ifs_dict,
+                        input_indices={
+                            channel: PortAddress.from_path(
+                                self.channels[channel].path
+                            ).ports[0]
+                            - 1
+                            for channel in data
+                            if self._modules[
+                                PortAddress.from_path(self.channels[channel].path).slot
+                            ].is_qrc_type
+                        },
                     )
                 )
 
@@ -339,7 +370,7 @@ class Cluster(Controller):
             # between the indexed sequencer and various inputs/outputs. Existing
             # connections would otherwise cause the operation to fail.
             module.disconnect_outputs()
-            if module.is_qrm_type:
+            if has_inputs(module):
                 module.disconnect_inputs()
 
             for seq in module.sequencers:
@@ -367,9 +398,10 @@ class Cluster(Controller):
                 los,
                 mixers,
                 is_qcm_non_rf_type=module.is_qcm_type and not module.is_rf_type,
+                is_qrc_type=module.is_qrc_type,
             )
-            modcfg.apply(module)
-        # `ModuleConfig.apply` disconnects all sequencers
+            # Sequencer configuration clears connections immediately before routing.
+            modcfg.apply(module, disconnect=False)
         self._applied_seqcfgs = None
         return modcfgs
 
@@ -416,7 +448,10 @@ class Cluster(Controller):
 
             # each channel is going to be assigned to its own sequencer, thus they can
             # not be outnumbered
-            assert len(module.sequencers) >= len(chs)
+            sequencer_count = (
+                QRC_SEQUENCERS if module.is_qrc_type else len(module.sequencers)
+            )
+            assert sequencer_count >= len(chs)
 
             seqcfgs[slot] = {}
             for idx, (ch, address) in enumerate(chs):
@@ -446,6 +481,7 @@ class Cluster(Controller):
                     acquisition,
                     module.is_rf_type,
                     sequence=sequences_[ch],
+                    qrc=module.is_qrc_type,
                 )
 
                 # populate channel-to-sequencer mapping
@@ -473,7 +509,11 @@ class Cluster(Controller):
             )
             module = self._modules[slot]
             for idx, seqcfg in cfgs.items():
-                seqcfg.apply(module.sequencers[idx], old.get(idx))
+                seqcfg.apply(
+                    module.sequencers[idx],
+                    old.get(idx),
+                    qrc=module.is_qrc_type,
+                )
         self._applied_seqcfgs = seqcfgs
 
         return sequencers, seqcfgs, acquisition_sequencers

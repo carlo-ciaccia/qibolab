@@ -17,6 +17,10 @@ def _chtype(mod: str, input: bool) -> tuple[str, type[Channel]]:
         return "drive", IqChannel
     if mod.startswith("qcm"):
         return "flux", DcChannel
+    if mod.startswith("qrc"):
+        if input:
+            return "acquisition", AcquisitionChannel
+        return "probe", IqChannel
     if mod.startswith("qrm_rf"):
         if input:
             return "acquisition", AcquisitionChannel

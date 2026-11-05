@@ -10,7 +10,7 @@ from qibolab._core.components.channels import AcquisitionChannel, IqChannel
 from qibolab._core.components.configs import IqConfig, OscillatorConfig
 from qibolab._core.execution_parameters import AcquisitionType
 from qibolab._core.instruments.qblox.cluster import Cluster
-from qibolab._core.instruments.qblox.results import extract
+from qibolab._core.instruments.qblox.results import extract, integration_lengths
 from qibolab._core.pulses.modulation import modulate
 
 
@@ -149,6 +149,114 @@ def test_extract_integration():
     assert value.shape == (2,)
     assert value.dtype == np.float64
     np.testing.assert_allclose(value, [1.0, 0.5])
+
+
+def test_extract_qrc_second_input_integration():
+    acq_name = str(uuid.uuid4())
+    acquisitions = {
+        "q0/acquisition": {
+            acq_name: {
+                "index": 0,
+                "acquisition": {
+                    "scope": {},
+                    "bins": {
+                        "integration": {
+                            "path0": [],
+                            "path1": [],
+                            "path2": [6.0],
+                            "path3": [8.0],
+                        },
+                        "threshold": [],
+                        "valid": [],
+                        "avg_cnt": [],
+                    },
+                },
+            }
+        }
+    }
+
+    result = extract(
+        acquisitions,
+        lengths={uuid.UUID(acq_name): 2},
+        acquisition=AcquisitionType.INTEGRATION,
+        shape=(2,),
+        sampling_rate=1.0,
+        frequencies={},
+        input_indices={"q0/acquisition": 1},
+    )
+
+    np.testing.assert_allclose(result[uuid.UUID(acq_name)], [3.0, 4.0])
+
+
+def test_extract_qrc_second_input_raw_scope():
+    acq_name = str(uuid.uuid4())
+    acquisitions = {
+        "q0/acquisition": {
+            acq_name: {
+                "index": 0,
+                "acquisition": {
+                    "scope": {
+                        "path0": {"data": [], "out-of-range": False, "avg_cnt": 1},
+                        "path1": {"data": [], "out-of-range": False, "avg_cnt": 1},
+                        "path2": {
+                            "data": [1.0, 2.0],
+                            "out-of-range": False,
+                            "avg_cnt": 1,
+                        },
+                        "path3": {
+                            "data": [3.0, 4.0],
+                            "out-of-range": False,
+                            "avg_cnt": 1,
+                        },
+                    },
+                    "bins": {},
+                },
+            }
+        }
+    }
+
+    result = extract(
+        acquisitions,
+        lengths={},
+        acquisition=AcquisitionType.RAW,
+        shape=(2, 2),
+        sampling_rate=1.0,
+        frequencies={},
+        input_indices={"q0/acquisition": 1},
+    )
+
+    np.testing.assert_allclose(result[uuid.UUID(acq_name)], [[1.0, 3.0], [2.0, 4.0]])
+
+
+def test_integration_lengths_uses_only_active_configured_sequencers():
+    acq_id = uuid.uuid4()
+    sequence = SimpleNamespace(
+        integration_lengths={acq_id: None},
+        acquisitions={acq_id: object()},
+    )
+
+    lengths = integration_lengths(
+        {"q0/acquisition": sequence},
+        {12: {"q0/acquisition": 0}},
+        {12: {0: 1000}},
+    )
+
+    assert lengths == {acq_id: 1000}
+
+
+def test_integration_lengths_requires_config_for_active_sequencer():
+    acq_id = uuid.uuid4()
+    sequence = SimpleNamespace(
+        integration_lengths={acq_id: None},
+        acquisitions={acq_id: object()},
+    )
+
+    with pytest.raises(ValueError, match="No configured integration length"):
+        integration_lengths(
+            {"q0/acquisition": sequence},
+            {12: {"q0/acquisition": 0}},
+            {12: {}},
+        )
 
 
 def test_extract_discrimination():

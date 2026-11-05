@@ -172,6 +172,7 @@ class PortConfig(BaseModel):
         lo: OscillatorConfig | None,
         mixer: MixerOffsetConfig | None,
         is_qcm_non_rf_type: bool,
+        is_qrc_type: bool = False,
     ) -> "PortConfig":
         """Create port configuration for the desired channel.
 
@@ -190,6 +191,11 @@ class PortConfig(BaseModel):
 
         path = f"in{n}" if not out else (f"out{n}" if not in_ else f"out{n}_in{n}")
         port = cls(path=path)
+
+        if is_qrc_type:
+            if acq and in_out and lo is not None:
+                port.lo(lo, qrc=True)
+            return port
 
         # delay compensation is applied by default on all output ports - time-of-flight
         # will be adjusted separately for input
@@ -231,8 +237,9 @@ class PortConfig(BaseModel):
     def offset_(self, dc: DcConfig) -> None:
         self.offset = dc.offset * QCM_NORMALIZED_DC_OFFSET_TO_VOLTS
 
-    def lo(self, lo: OscillatorConfig) -> None:
-        self.lo_en = True
+    def lo(self, lo: OscillatorConfig, qrc: bool = False) -> None:
+        if not qrc:
+            self.lo_en = True
         self.lo_freq = int(lo.frequency)
 
     def att_(self, lo: OscillatorConfig) -> None:

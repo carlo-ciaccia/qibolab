@@ -1,3 +1,6 @@
+from typing import cast
+
+from qibolab._core.components import AcquisitionChannel, Channel
 from qibolab._core.execution_parameters import (
     AcquisitionType,
     ExecutionParameters,
@@ -9,10 +12,13 @@ from qibolab._core.pulses import Readout
 from qibolab._core.sequence import PulseSequence
 from qibolab._core.sweeper import ParallelSweepers
 
+from .config.port import PortAddress
 from .limits import (
     ACQUISITION_MEMORY,
     ACQUISITION_NUMBER,
     QCM_INSTRUCTION_MEMORY,
+    QRC_READOUT_PORTS,
+    QRC_SEQUENCERS,
     QRM_INSTRUCTION_MEMORY,
     SCOPE_MEMORY,
     WAVEFORM_MEMORY,
@@ -152,3 +158,43 @@ def validate_raw_duration(
                     f"ns) plus relaxation time ({relaxation:g} ns) to be at least "
                     f"{SCOPE_MEMORY} ns, to fill the scope memory."
                 )
+
+
+def validate_qrc_channels(
+    slot: int,
+    channels: list[tuple[ChannelId, PortAddress]],
+    all_channels: dict[ChannelId, Channel],
+) -> None:
+    """Validate the channels assigned to a QRC module.
+
+    Only readout is supported: each acquisition channel must sit on a paired
+    input/output port (``io1`` or ``io2``) shared with its probe channel.
+    """
+    if len(channels) > QRC_SEQUENCERS:
+        raise ValueError(
+            f"QRC slot {slot} has only {QRC_SEQUENCERS} readout sequencers; "
+            f"{len(channels)} channels are configured."
+        )
+    if any(not isinstance(all_channels[ch], AcquisitionChannel) for ch, _ in channels):
+        raise NotImplementedError(
+            "QRC control-output channels are not supported yet; "
+            "only readout channels can be configured."
+        )
+    for ch, address in channels:
+        acquisition = cast(AcquisitionChannel, all_channels[ch])
+        probe = all_channels.get(acquisition.probe)
+        probe_address = PortAddress.from_path(probe.path) if probe is not None else None
+        if (
+            not address.input
+            or address.ports[0] not in QRC_READOUT_PORTS
+            or address.ports[1] is not None
+            or probe_address is None
+            or probe_address.input
+            or probe_address.slot != address.slot
+            or probe_address.ports[0] != address.ports[0]
+            or probe_address.ports[1] is not None
+        ):
+            raise NotImplementedError(
+                "QRC readout currently requires a matching probe and "
+                "acquisition on paired IO port 1 or 2."
+            )
