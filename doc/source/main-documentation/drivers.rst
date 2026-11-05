@@ -15,8 +15,21 @@ A list of all the supported electronics follows:
 
 Controllers (subclasses of :class:`qibolab._core.instruments.abstract.Controller`):
     - Dummy Instrument: :class:`qibolab.instruments.DummyInstrument`
+    - Qblox Cluster: :class:`qibolab._core.instruments.qblox.cluster.Cluster`
     - Quantum Machines: :class:`qibolab.instruments.qm.QmController`
     - Qibosoq-controlled RFSoC: :class:`qibolab.instruments.qibosoq.RFSoC`
+
+**Qblox QRC support.** The Qblox driver supports readout on the QRC module's paired
+output/input ports ``io1`` and ``io2``, with at most 8 readout channels per module
+(one sequencer each). The following are not supported yet:
+
+- QRC control-output (drive) channels and multiplexed routing;
+- IQ-imbalance corrections (``scale_q``, ``phase_q``), which are ignored with a warning,
+  since the QRC has no configurable mixer corrections;
+- channel layouts violating the above, which are rejected when connecting to the cluster.
+
+Port numbers in qibolab are 1-based (``io1``), while the corresponding Qblox hardware
+parameters are 0-based (``out0_in0``).
 
 Other Instruments (subclasses of :class:`qibolab._core.instruments.abstract.Instrument`):
     - Erasynth++: :class:`qibolab.instruments.era.ERASynth`
