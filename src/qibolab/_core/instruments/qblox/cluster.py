@@ -35,7 +35,7 @@ from . import config
 from .batching import batch_sequences_by_cluster_memory_limits
 from .config import PortAddress
 from .identifiers import SequencerMap, SlotId
-from .limits import QRC_SEQUENCERS
+from .limits import QRC_READOUT_PORTS, QRC_SEQUENCERS
 from .log import Logger
 from .qrc import assign_sequencers
 from .results import AcquiredData, extract, integration_lengths
@@ -421,12 +421,13 @@ class Cluster(Controller):
     ) -> tuple[
         SequencerMap,
         dict[SlotId, dict[int, config.SequencerConfig]],
-        dict[SlotId, list[int]],
+        dict[SlotId, dict[int, int]],
     ]:
         """Configure sequencers.
 
         Returns the channel-to-sequencer map, sequencer configurations grouped by
-        module slot, and acquisition sequencer indices grouped by module slot.
+        module slot, and acquisition sequencer indices grouped by module slot and scope
+        (the QRC has one scope for each input, the other modules a single one).
 
         For configuration testing purpose, it is possible to also configure sequencers
         with no sequence provided. In which case, it will attempt to assign sequencers
@@ -441,12 +442,13 @@ class Cluster(Controller):
 
         Acquisition sequencers are relevant in :attr:`AcquisitionType.RAW` mode and are
         necessary to trigger raw data acquisition in qblox modules. If there is more
-        than 1 acquisition sequencer in the same module the driver returns an error to
-        satisfy Qblox hardware constraints.
+        than 1 acquisition sequencer for the same scope the driver returns an error to
+        satisfy Qblox hardware constraints - the scope is module-wide, except on QRC
+        modules, which have one for each input.
         See https://docs.qblox.com/en/main/products/qblox_instruments/tutorials/QRM/030_scope_acquisition.html
         """
         sequencers = defaultdict(dict)
-        acquisition_sequencers = defaultdict(list)
+        acquisition_sequencers: dict[SlotId, dict[int, int]] = defaultdict(dict)
         exec_mode = sequences is not None
         sequences_ = defaultdict(lambda: None, sequences if exec_mode else {})
 
@@ -478,13 +480,17 @@ class Cluster(Controller):
                     continue
 
                 if address.input and acquisition is AcquisitionType.RAW:
-                    acquisition_sequencers[slot].append(idx)
-                    if len(acquisition_sequencers[slot]) > 1:
+                    # the scope is module-wide, except on the QRC, which has one scope
+                    # for each of its two inputs
+                    scope = address.ports[0] - 1 if module.is_qrc_type else 0
+                    selected = acquisition_sequencers[slot]
+                    if scope in selected:
                         raise ValueError(
                             "RAW acquisition supports only one acquisition sequencer per "
-                            f"module, but module in slot {slot} has {len(acquisition_sequencers[slot])}: "
-                            f"{acquisition_sequencers[slot]}."
+                            f"scope, but module in slot {slot} has "
+                            f"{sorted({selected[scope], idx})} on the same scope."
                         )
+                    selected[scope] = idx
 
                 seqcfgs[slot][idx] = config.SequencerConfig.build(
                     address,
@@ -548,11 +554,15 @@ class Cluster(Controller):
         self._enable_raw_acquisition(acq_sequencers)
         return sequencers, ClusterConfigs(modules=modules_configs, sequencers=seqcfgs)
 
-    def _enable_raw_acquisition(self, acq_sequencers: dict[SlotId, list[int]]) -> None:
+    def _enable_raw_acquisition(
+        self, acq_sequencers: dict[SlotId, dict[int, int]]
+    ) -> None:
         """Select the scope acquisition sequencer on modules with RAW inputs.
 
         Scope acquisition is module-wide, thus at most one sequencer per module can be
-        selected.
+        selected - except on QRC modules, where one sequencer is selected for each
+        input. If only one QRC input is used, its sequencer is selected for both, since
+        the parameter takes a value for each.
         Scope averaging is instead enabled on all QRM modules by the
         :class:`config.ModuleConfig` defaults, such that RAW traces are averaged over
         shots in hardware. Since the scope memory can not retain a separate trace per
@@ -560,8 +570,15 @@ class Cluster(Controller):
         averaging is rejected (cf. :func:`validate.validate_raw_options`).
         """
 
-        for slot, seq_indices in acq_sequencers.items():
-            self._modules[slot].scope_acq_sequencer_select(seq_indices[0])
+        for slot, by_scope in acq_sequencers.items():
+            module = self._modules[slot]
+            if not module.is_qrc_type:
+                module.scope_acq_sequencer_select(by_scope[0])
+                continue
+            fallback = next(iter(by_scope.values()))
+            module.scope_acq_sequencer_select(
+                [by_scope.get(port - 1, fallback) for port in sorted(QRC_READOUT_PORTS)]
+            )
 
     def _execute(
         self,

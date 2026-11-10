@@ -3,8 +3,10 @@
 import uuid
 from unittest.mock import Mock
 
+import numpy as np
 import pytest
 import qblox_instruments as qblox
+from qblox_instruments.ieee488_2.dummy_transport import DummyScopeAcquisitionData
 from qblox_instruments.types import ClusterType
 
 from qibolab._core.components import (
@@ -14,7 +16,11 @@ from qibolab._core.components import (
     IqConfig,
     OscillatorConfig,
 )
-from qibolab._core.execution_parameters import AcquisitionType
+from qibolab._core.execution_parameters import (
+    AcquisitionType,
+    AveragingMode,
+    ExecutionParameters,
+)
 from qibolab._core.instruments.qblox.cluster import Cluster
 from qibolab._core.instruments.qblox.config.module import ModuleConfig
 from qibolab._core.instruments.qblox.config.port import PortAddress
@@ -22,7 +28,10 @@ from qibolab._core.instruments.qblox.config.sequencer import SequencerConfig
 from qibolab._core.instruments.qblox.platform import map_ports
 from qibolab._core.instruments.qblox.qrc import allowed_sequencers, assign_sequencers
 from qibolab._core.instruments.qblox.validate import validate_qrc_channels
+from qibolab._core.pulses import Acquisition, Pulse, Readout, Rectangular
+from qibolab._core.pulses.modulation import demodulate
 from qibolab._core.qubits import Qubit
+from qibolab._core.sequence import PulseSequence
 
 
 def _readout_channels(pair=1):
@@ -470,3 +479,112 @@ def test_qrc_scope_triggering_and_averaging_on_both_inputs():
             )
     finally:
         cluster.close()
+
+
+def _raw_readouts(*pairs):
+    """One readout qubit on each of the given paired IO ports, probed at the LO."""
+    qubits = {f"q{i}": Qubit.default(f"q{i}", channels=["probe", "acquisition"])
+              for i in range(len(pairs))}  # fmt: skip
+    ports: dict[str, list[str]] = {}
+    for i, pair in enumerate(pairs):
+        ports.setdefault(f"io{pair}", []).append(f"q{i}")
+    channels = map_ports({"qrc": (7, ports)}, qubits)
+    configs = {}
+    for i, pair in enumerate(pairs):
+        oscillator = f"qrc/out{pair - 1}_in{pair - 1}"
+        channels[f"q{i}/probe"] = channels[f"q{i}/probe"].model_copy(
+            update={"lo": oscillator}
+        )
+        # probed at the LO frequency: the traces are not demodulated in software
+        configs[f"q{i}/probe"] = IqConfig(frequency=5e9)
+        configs[f"q{i}/acquisition"] = AcquisitionConfig(delay=4, smearing=0)
+        configs[oscillator] = OscillatorConfig(frequency=5e9, power=-20)
+    return channels, configs
+
+
+def _play_raw(channels, configs, readouts, samples=1000):
+    """Play RAW readouts on a dummy QRC whose two inputs record distinct traces:
+    (0.5, -0.5) on the first, (0.25, 0.75) on the second."""
+    name = f"qrc_raw_{uuid.uuid4().hex[:8]}"
+    dummy = qblox.Cluster(
+        name, identifier="dummy", dummy_cfg={7: ClusterType.CLUSTER_QRC}
+    )
+    data = DummyScopeAcquisitionData(
+        data=[(0.5, -0.5, 0.25, 0.75)] * 16384,
+        out_of_range=(False,) * 4,
+        avg_cnt=(8,) * 4,
+    )
+    reset = dummy.reset
+
+    def reset_and_inject():
+        # injected data is cleared by the reset at the beginning of each execution
+        reset()
+        dummy.set_dummy_scope_acquisition_data(7, None, data)
+
+    dummy.reset = reset_and_inject
+    driver = Cluster(name=name, address="dummy", channels=channels)
+    driver._cluster = dummy
+    sequence = PulseSequence(
+        [
+            (
+                acquisition,
+                Readout(
+                    acquisition=Acquisition(duration=samples),
+                    probe=Pulse(
+                        duration=samples, amplitude=0.1, envelope=Rectangular()
+                    ),
+                ),
+            )
+            for acquisition in readouts
+        ]
+    )
+    options = ExecutionParameters(
+        nshots=8,
+        relaxation_time=1000,
+        acquisition_type=AcquisitionType.RAW,
+        averaging_mode=AveragingMode.CYCLIC,
+    )
+    try:
+        results = driver.play(configs, [sequence], options, [])
+        module = driver._modules[7]
+        by_input = {
+            module.sequencers[s].connect_acq(): s
+            for s in range(8)
+            if module.sequencers[s].connect_acq() != "off"
+        }
+        selected = module.scope_acq_sequencer_select()
+    finally:
+        dummy.close()
+    ids = {ch: event.id for ch, event in sequence if isinstance(event, Readout)}
+    return {ch: results[ids[ch]] for ch in readouts}, by_input, selected
+
+
+def _expected(trace, samples=1000):
+    return demodulate(np.array(trace)[:, None] * np.ones(samples), 0, 1e9).T
+
+
+def test_qrc_raw_on_both_inputs():
+    """Each QRC input is recorded by its own scope, on its own pair of paths."""
+    channels, configs = _raw_readouts(1, 2)
+    results, by_input, selected = _play_raw(
+        channels, configs, ["q0/acquisition", "q1/acquisition"]
+    )
+    np.testing.assert_allclose(results["q0/acquisition"], _expected((0.5, -0.5)))
+    np.testing.assert_allclose(results["q1/acquisition"], _expected((0.25, 0.75)))
+    # one scope sequencer for each input
+    assert list(selected) == [by_input["in0"], by_input["in1"]]
+
+
+def test_qrc_raw_on_the_second_input_only():
+    channels, configs = _raw_readouts(2)
+    results, by_input, selected = _play_raw(channels, configs, ["q0/acquisition"])
+    np.testing.assert_allclose(results["q0/acquisition"], _expected((0.25, 0.75)))
+    # the parameter takes a sequencer for each scope: the used one is repeated,
+    # which the instrument reports back as a single index
+    assert selected in (by_input["in1"], [by_input["in1"]] * 2)
+
+
+def test_qrc_raw_rejects_two_sequencers_on_one_input():
+    channels, configs = _raw_readouts(1, 1)
+    with pytest.raises(ValueError, match="one acquisition sequencer per scope"):
+        _play_raw(channels, configs, ["q0/acquisition", "q1/acquisition"])
