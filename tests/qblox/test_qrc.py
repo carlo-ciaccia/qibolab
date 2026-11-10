@@ -337,3 +337,65 @@ def test_qrc_drive_and_readout_sequencer_routing():
         assert module.sequencers[drive].connect_out2() == "IQ"
     finally:
         dummy.close()
+
+
+def test_qrc_input_attenuation_can_differ_from_output():
+    channels, configs = _readout_channels()
+    configs["q0/acquisition"] = AcquisitionConfig(delay=0, smearing=0, attenuation=30)
+    module_config = ModuleConfig.build(
+        channels,
+        configs,
+        {"q0/acquisition": configs["qrc/out0_in0"]},
+        {},
+        is_qcm_non_rf_type=False,
+        is_qrc_type=True,
+    )
+    assert module_config.ports == {
+        "out0_in0_lo_freq": 5e9,
+        "out0_att": 20,
+        "in0_att": 30,
+    }
+
+
+def test_qrc_invalid_input_attenuation_is_rejected():
+    channels, configs = _readout_channels()
+    configs["q0/acquisition"] = AcquisitionConfig(delay=0, smearing=0, attenuation=40)
+    with pytest.raises(ValueError, match="attenuation"):
+        ModuleConfig.build(
+            channels,
+            configs,
+            {"q0/acquisition": configs["qrc/out0_in0"]},
+            {},
+            is_qcm_non_rf_type=False,
+            is_qrc_type=True,
+        )
+
+
+def test_qrc_lo_frequency_is_set_before_attenuation():
+    """The maximum attenuation depends on the LO frequency."""
+    calls = []
+
+    class Parameter:
+        def __init__(self, name):
+            self.name = name
+
+        def set(self, value):
+            calls.append(self.name)
+
+    class FakeModule:
+        is_qrc_type = True
+        is_qrm_type = False
+        is_rf_type = True
+
+        def __init__(self):
+            self.parameters = {
+                name: Parameter(name)
+                for name in ("in0_att", "out0_att", "out0_in0_lo_freq")
+            }
+
+    ModuleConfig(
+        ports={"in0_att": 30, "out0_att": 23.5, "out0_in0_lo_freq": 5.4e9}
+    ).apply(FakeModule(), disconnect=False)
+
+    assert calls[0] == "out0_in0_lo_freq"
+    assert set(calls) == {"in0_att", "out0_att", "out0_in0_lo_freq"}

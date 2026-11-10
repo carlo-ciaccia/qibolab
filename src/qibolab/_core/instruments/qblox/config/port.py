@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from qibolab._core.components.channels import AcquisitionChannel, Channel, IqChannel
 from qibolab._core.components.configs import (
+    AcquisitionConfig,
     Config,
     DcConfig,
     MixerOffsetConfig,
@@ -194,16 +195,28 @@ class PortConfig(BaseModel):
         port = cls(path=path)
 
         if is_qrc_type:
+            # the input attenuator is set explicitly by the acquisition config, if it
+            # states so, since the LO power only describes the output
+            if (
+                acq
+                and in_
+                and not out
+                and isinstance(config, AcquisitionConfig)
+                and config.attenuation is not None
+            ):
+                port.qrc_att(config.attenuation)
             if lo is None:
                 return port
             # the LO frequency is shared by the paired ports, e.g. `out0_in0` (cf.
             # `ModuleConfig.build`, which maps drive channels on `out0` and `out1`)
             if (acq and in_out) or (drive and only_out):
                 port.lo(lo, qrc=True)
-            # input and output attenuators are separate, and both follow the power of
-            # the (shared) LO, as the attenuation is -power
-            if (acq and in_ and not out) or (only_out and (acq or drive)):
-                port.qrc_att(lo)
+            # otherwise, input and output attenuators are separate, and follow the
+            # power of the (shared) LO, as the attenuation is -power
+            if (acq and in_ and not out and port.att is None) or (
+                only_out and (acq or drive)
+            ):
+                port.qrc_att(-lo.power)
             return port
 
         # delay compensation is applied by default on all output ports - time-of-flight
@@ -254,14 +267,13 @@ class PortConfig(BaseModel):
     def att_(self, lo: OscillatorConfig) -> None:
         self.att = -int(lo.power)
 
-    def qrc_att(self, lo: OscillatorConfig) -> None:
-        """Set the attenuation of a QRC port, from the (negative) LO power in dB."""
-        att = -lo.power
+    def qrc_att(self, att: float) -> None:
+        """Set the attenuation of a QRC port, in dB."""
         steps = att / QRC_ATTENUATION_STEP
         if not 0 <= att <= QRC_MAX_ATTENUATION or abs(steps - round(steps)) > 1e-9:
             raise ValueError(
-                f"QRC attenuation of port {self.path!r} (minus the LO power, {att} dB) "
-                f"must be a multiple of {QRC_ATTENUATION_STEP} dB in the range "
+                f"QRC attenuation of port {self.path!r} ({att} dB) must be a "
+                f"multiple of {QRC_ATTENUATION_STEP} dB in the range "
                 f"[0, {QRC_MAX_ATTENUATION}] dB."
             )
         self.att = int(att) if float(att).is_integer() else att

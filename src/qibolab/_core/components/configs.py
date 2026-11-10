@@ -128,6 +128,11 @@ class AcquisitionConfig(Config):
     kernel: Annotated[NdArray | None, Field(repr=False)] = None
     """Integration weights to be used when post-processing the acquired
     signal."""
+    attenuation: float | None = None
+    """Input attenuation [dB], for instruments with a configurable input attenuator.
+
+    If :obj:`None`, the driver decides (e.g. Qblox QRC follows the LO power).
+    """
 
     def __eq__(self, other) -> bool:
         return eq(self, other)
