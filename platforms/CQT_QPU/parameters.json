@@ -20,13 +20,97 @@
     },
     "qrc_readout/out0_in0": {
       "kind": "oscillator",
-      "frequency": 5.4e9,
+      "frequency": 5400000000.0,
       "power": -23.5
     },
     "qrc_drive/out5": {
       "kind": "oscillator",
-      "frequency": 4.7e9,
+      "frequency": 4700000000.0,
       "power": 0.0
+    },
+    "q2/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "q4/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "q6/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "q10/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc10_11/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc10_15/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc1_2/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc1_4/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc2_5/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc3_4/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc3_8/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc4_5/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc4_9/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc5_10/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc5_6/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc6_11/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc6_7/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc7_12/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc8_9/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc9_10/flux": {
+      "kind": "dc",
+      "offset": 0.0
+    },
+    "coupler_tc9_14/flux": {
+      "kind": "dc",
+      "offset": 0.0
     }
   },
   "native_gates": {
