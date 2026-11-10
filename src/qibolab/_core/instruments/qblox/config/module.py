@@ -202,7 +202,12 @@ class ModuleConfig(Model):
             if has_inputs(mod):
                 mod.disconnect_inputs()
 
-        for config, value in self.ports.items():
+        ports = self.ports.items()
+        if mod.is_qrc_type:
+            # the maximum QRC attenuation depends on the LO frequency, which then needs
+            # to be set first
+            ports = sorted(ports, key=lambda item: not item[0].endswith("_lo_freq"))
+        for config, value in ports:
             mod.parameters[config].set(value)
 
         # apply all the other configurations
