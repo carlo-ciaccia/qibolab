@@ -18,7 +18,13 @@ from qibolab._core.components.filters import (
 from qibolab._core.serialize import Model
 
 from ..identifiers import SlotId
-from ..limits import QRC_ATTENUATION_STEP, QRC_MAX_ATTENUATION
+from ..limits import (
+    QRC_ATTENUATION_STEP,
+    QRC_LO_MAX,
+    QRC_LO_MIN,
+    QRC_LO_STEP,
+    QRC_MAX_ATTENUATION,
+)
 
 __all__ = []
 
@@ -210,7 +216,7 @@ class PortConfig(BaseModel):
             # the LO frequency is shared by the paired ports, e.g. `out0_in0` (cf.
             # `ModuleConfig.build`, which maps drive channels on `out0` and `out1`)
             if (acq and in_out) or (drive and only_out):
-                port.lo(lo, qrc=True)
+                port.lo(lo, qrc=True, channel=channel.path)
             # otherwise, input and output attenuators are separate, and follow the
             # power of the (shared) LO, as the attenuation is -power
             if (acq and in_ and not out and port.att is None) or (
@@ -259,10 +265,32 @@ class PortConfig(BaseModel):
     def offset_(self, dc: DcConfig) -> None:
         self.offset = dc.offset * QCM_NORMALIZED_DC_OFFSET_TO_VOLTS
 
-    def lo(self, lo: OscillatorConfig, qrc: bool = False) -> None:
-        if not qrc:
+    def lo(
+        self, lo: OscillatorConfig, qrc: bool = False, channel: str | None = None
+    ) -> None:
+        if qrc:
+            self.qrc_lo_check(lo.frequency, channel)
+        else:
             self.lo_en = True
         self.lo_freq = int(lo.frequency)
+
+    def qrc_lo_check(self, frequency: float, channel: str | None = None) -> None:
+        """Reject QRC LO frequencies the module does not support.
+
+        The instrument would reject them too, but with a parameter-level message only.
+        """
+        steps = frequency / QRC_LO_STEP
+        if (
+            not QRC_LO_MIN <= frequency <= QRC_LO_MAX
+            or abs(steps - round(steps)) > 1e-9
+        ):
+            where = f" of channel {channel!r}" if channel is not None else ""
+            raise ValueError(
+                f"QRC LO frequency {frequency:.6g} Hz{where} (port {self.path!r}) must "
+                f"be a multiple of {QRC_LO_STEP / 1e6:g} MHz in the range "
+                f"[{QRC_LO_MIN / 1e9:g}, {QRC_LO_MAX / 1e9:g}] GHz: choose the LO on "
+                "the grid, the channel frequency is reached by the NCO."
+            )
 
     def att_(self, lo: OscillatorConfig) -> None:
         self.att = -int(lo.power)

@@ -18,7 +18,7 @@ from qibolab._core.execution_parameters import AcquisitionType
 from qibolab._core.identifier import ChannelId
 from qibolab._core.serialize import Model
 
-from ..limits import QRC_OUTPUTS, QRC_READOUT_PORTS
+from ..limits import NCO_RANGE, QRC_OUTPUTS, QRC_READOUT_PORTS
 from ..q1asm.ast_ import Acquire, Line
 from ..sequence import Q1Sequence
 from .port import PortAddress
@@ -141,6 +141,12 @@ class SequencerConfig(Model):
             assert probe_.lo is not None
             lo_freq = cast(OscillatorConfig, configs[probe_.lo]).frequency
             cfg.nco_freq = int(probe_config.frequency - lo_freq)
+            if qrc and abs(cfg.nco_freq) > NCO_RANGE:
+                raise ValueError(
+                    f"Frequency of {probe!r} is {cfg.nco_freq / 1e6:g} MHz away from its "
+                    f"LO, beyond the NCO range of +/-{NCO_RANGE / 1e6:g} MHz: move the "
+                    "LO (on its 100 MHz grid) closer to the channel frequency."
+                )
             if qrc:
                 # the QRC has no configurable IQ mixer corrections
                 if probe_config.scale_q != 1.0 or probe_config.phase_q != 0.0:

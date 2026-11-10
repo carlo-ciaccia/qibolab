@@ -588,3 +588,51 @@ def test_qrc_raw_rejects_two_sequencers_on_one_input():
     channels, configs = _raw_readouts(1, 1)
     with pytest.raises(ValueError, match="one acquisition sequencer per scope"):
         _play_raw(channels, configs, ["q0/acquisition", "q1/acquisition"])
+
+
+@pytest.mark.parametrize("frequency", [5.05e9, 0.4e9, 10.2e9])
+@pytest.mark.parametrize("kind", ["readout", "drive"])
+def test_qrc_lo_off_grid_or_out_of_range_is_rejected(kind, frequency):
+    channels, configs = _drive_channels(output=3, readout_pair=2)
+    oscillator, channel = (
+        ("qrc/out1_in1", "q0/acquisition")
+        if kind == "readout"
+        else ("qrc/out2", "q0/drive")
+    )
+    configs[oscillator] = OscillatorConfig(frequency=frequency, power=-20)
+    with pytest.raises(ValueError, match="multiple of 100 MHz") as error:
+        ModuleConfig.build(
+            {channel: channels[channel]},
+            configs,
+            {channel: configs[oscillator]},
+            {},
+            is_qcm_non_rf_type=False,
+            is_qrc_type=True,
+        )
+    # the message names the qibolab channel path, to find it in the platform (for a
+    # readout, the shared LO is configured through the acquisition channel)
+    assert channels[channel].path in str(error.value)
+
+
+@pytest.mark.parametrize(("offset", "valid"), [(500e6, True), (-500e6, True),
+                                               (501e6, False), (-700e6, False)])  # fmt: skip
+def test_qrc_nco_range_is_checked(offset, valid):
+    channels, configs = _drive_channels(output=3, readout_pair=2)
+    configs["q0/drive"] = IqConfig(frequency=5e9 + offset)
+
+    def build():
+        return SequencerConfig.build(
+            address=PortAddress.from_path(channels["q0/drive"].path),
+            channel_id="q0/drive",
+            channels=channels,
+            configs=configs,
+            acquisition=AcquisitionType.INTEGRATION,
+            rf=True,
+            qrc=True,
+        )
+
+    if valid:
+        assert build().nco_freq == offset
+    else:
+        with pytest.raises(ValueError, match="beyond the NCO range"):
+            build()

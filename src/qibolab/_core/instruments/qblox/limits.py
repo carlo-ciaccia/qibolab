@@ -66,6 +66,18 @@ QRC_READOUT_PORTS = frozenset({1, 2})
 Port numbers are 1-based in the qibolab channel path (``io1``), while the hardware
 parameters are 0-based (``out0_in0``).
 """
+QRC_LO_STEP = 100e6
+"""Grid of the QRC up/down-conversion ("LO") frequencies, in Hz.
+
+The fine frequency of each channel is set by its sequencer NCO.
+https://docs.qblox.com/en/main/products/architecture/modules/qrc.html
+"""
+QRC_LO_MIN = 0.5e9
+"""Lowest QRC LO frequency, in Hz."""
+QRC_LO_MAX = 10.1e9
+"""Highest QRC LO frequency, in Hz."""
+NCO_RANGE = 500e6
+"""Range of the sequencer NCO frequency, symmetric around 0, in Hz."""
 QRC_ATTENUATION_STEP = 0.5
 """Resolution of the QRC input and output attenuators, in dB."""
 QRC_MAX_ATTENUATION = 31.5
