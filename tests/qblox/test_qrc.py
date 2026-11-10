@@ -427,20 +427,46 @@ def test_qrc_lo_frequency_is_set_before_attenuation():
         def set(self, value):
             calls.append(self.name)
 
+    class Parameters(dict):
+        def __missing__(self, name):
+            self[name] = Parameter(name)
+            return self[name]
+
     class FakeModule:
         is_qrc_type = True
         is_qrm_type = False
         is_rf_type = True
 
         def __init__(self):
-            self.parameters = {
-                name: Parameter(name)
-                for name in ("in0_att", "out0_att", "out0_in0_lo_freq")
-            }
+            self.parameters = Parameters()
 
     ModuleConfig(
         ports={"in0_att": 30, "out0_att": 23.5, "out0_in0_lo_freq": 5.4e9}
     ).apply(FakeModule(), disconnect=False)
 
-    assert calls[0] == "out0_in0_lo_freq"
-    assert set(calls) == {"in0_att", "out0_att", "out0_in0_lo_freq"}
+    # module-wide options (e.g. the scope ones) follow the port configurations
+    ports = [name for name in calls if not name.startswith("scope_acq_")]
+    assert ports[0] == "out0_in0_lo_freq"
+    assert set(ports) == {"in0_att", "out0_att", "out0_in0_lo_freq"}
+
+
+def test_qrc_scope_triggering_and_averaging_on_both_inputs():
+    """As on QRM modules, the scope is triggered by the sequencers and averages the
+    traces over the shots, on the paths of both QRC inputs (after a reset, averaging
+    is disabled)."""
+    name = f"qrc_scope_{uuid.uuid4().hex[:8]}"
+    cluster = qblox.Cluster(
+        name, identifier="dummy", dummy_cfg={7: ClusterType.CLUSTER_QRC}
+    )
+    try:
+        cluster.reset()
+        module = next(module for module in cluster.modules if module.slot_idx == 7)
+        assert not module.scope_acq_avg_mode_en_path2()
+        ModuleConfig(ports={}).apply(module, disconnect=False)
+        for path in range(4):
+            assert module.parameters[f"scope_acq_avg_mode_en_path{path}"]() is True
+            assert module.parameters[f"scope_acq_trigger_mode_path{path}"]() == (
+                "sequencer"
+            )
+    finally:
+        cluster.close()

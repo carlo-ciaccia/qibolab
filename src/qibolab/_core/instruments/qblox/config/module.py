@@ -64,9 +64,11 @@ class ModuleType(Flag):
     """Module types, used to declaratively restrict configurations scope."""
 
     QRM = auto()
-    """QRM type module."""
+    """Module with inputs, i.e. QRM type or QRC (cf. :func:`..utils.has_inputs`)."""
     RF = auto()
     """Radio frequency module."""
+    QRC = auto()
+    """QRC module, whose second input is recorded on scope paths 2 and 3."""
 
 
 class ModuleConfig(Model):
@@ -101,6 +103,26 @@ class ModuleConfig(Model):
 
     scope_acq_avg_mode_en_path1: Annotated[bool, ModuleType.QRM] = True
     """Scope acquisition averaging mode enable for path 1."""
+
+    scope_acq_trigger_mode_path2: Annotated[
+        Literal["sequencer", "level"], ModuleType.QRC
+    ] = "sequencer"
+    """Scope trigger mode for path 2 (I of the second QRC input).
+
+    Cf. :attr:`scope_acq_trigger_mode_path0`.
+    """
+    scope_acq_trigger_mode_path3: Annotated[
+        Literal["sequencer", "level"], ModuleType.QRC
+    ] = "sequencer"
+    """Scope trigger mode for path 3 (Q of the second QRC input).
+
+    Cf. :attr:`scope_acq_trigger_mode_path0`.
+    """
+    scope_acq_avg_mode_en_path2: Annotated[bool, ModuleType.QRC] = True
+    """Scope acquisition averaging mode enable for path 2."""
+
+    scope_acq_avg_mode_en_path3: Annotated[bool, ModuleType.QRC] = True
+    """Scope acquisition averaging mode enable for path 3."""
 
     @classmethod
     def build(
@@ -187,9 +209,12 @@ class ModuleConfig(Model):
         if len(flag) > 0:
             assert len(flag) == 1
             modtype = flag[0]
-            if ModuleType.QRM in modtype and not mod.is_qrm_type:
+            # scope options apply to every module with inputs, the QRC included
+            if ModuleType.QRM in modtype and not has_inputs(mod):
                 return
             if ModuleType.RF in modtype and not mod.is_rf_type:
+                return
+            if ModuleType.QRC in modtype and not mod.is_qrc_type:
                 return
 
         mod.parameters[name].set(value)
