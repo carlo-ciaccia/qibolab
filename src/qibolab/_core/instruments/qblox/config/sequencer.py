@@ -95,9 +95,12 @@ class SequencerConfig(Model):
             offset_awg_path0=0.0,
             offset_awg_path1=0.0,
             # TODO: properly document - the first 4 marker bits are used to toggle
-            # outputs, enabling suitable amplification
-            marker_ovr_en=True,
-            marker_ovr_value=15,
+            # outputs, enabling suitable amplification.
+            # The QRC has no RF switches: its only marker is the user digital output
+            # M1 (the OR of all sequencers), which forcing would hold high. The
+            # override is then explicitly disabled, leaving M1 to the programs.
+            marker_ovr_en=not qrc,
+            marker_ovr_value=None if qrc else 15,
             # upload sequence
             # - ensure JSON compatibility of the sent dictionary
             sequence=(

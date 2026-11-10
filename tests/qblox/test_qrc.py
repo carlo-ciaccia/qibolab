@@ -303,6 +303,51 @@ def test_qrc_sequencer_warns_on_ignored_iq_corrections():
         )
 
 
+@pytest.mark.parametrize("qrc", [False, True])
+def test_marker_override_only_outside_qrc(qrc):
+    """RF-module markers gate the output switches, so they are forced high; the only
+    QRC marker is the user digital output M1, which must not be held high."""
+    channels, configs = _drive_channels()
+    config = SequencerConfig.build(
+        address=PortAddress.from_path(channels["q0/drive"].path),
+        channel_id="q0/drive",
+        channels=channels,
+        configs=configs,
+        acquisition=AcquisitionType.INTEGRATION,
+        rf=True,
+        qrc=qrc,
+    )
+    assert config.marker_ovr_en is (not qrc)
+    assert config.marker_ovr_value == (None if qrc else 15)
+
+
+def test_qrc_marker_override_is_cleared_on_the_instrument():
+    channels, configs = _drive_channels()
+    config = SequencerConfig.build(
+        address=PortAddress.from_path(channels["q0/drive"].path),
+        channel_id="q0/drive",
+        channels=channels,
+        configs=configs,
+        acquisition=AcquisitionType.INTEGRATION,
+        rf=True,
+        qrc=True,
+    )
+    name = f"qrc_marker_{uuid.uuid4().hex[:8]}"
+    cluster = qblox.Cluster(
+        name, identifier="dummy", dummy_cfg={7: ClusterType.CLUSTER_QRC}
+    )
+    try:
+        module = next(module for module in cluster.modules if module.slot_idx == 7)
+        sequencer = module.sequencers[8]
+        # e.g. left forced high by an earlier configuration
+        sequencer.marker_ovr_en(True)
+        sequencer.marker_ovr_value(15)
+        config.apply(sequencer, qrc=True)
+        assert sequencer.marker_ovr_en() is False
+    finally:
+        cluster.close()
+
+
 def test_validate_modules_reports_unavailable_module():
     class UnavailableModule:
         @property
