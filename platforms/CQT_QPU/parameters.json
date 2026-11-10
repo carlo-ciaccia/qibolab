@@ -1,0 +1,91 @@
+{
+  "settings": {
+    "nshots": 1024,
+    "relaxation_time": 200000
+  },
+  "configs": {
+    "q2/drive": {
+      "kind": "iq",
+      "frequency": 4609553960.020102
+    },
+    "q2/probe": {
+      "kind": "iq",
+      "frequency": 5101673609.371937
+    },
+    "q2/acquisition": {
+      "kind": "acquisition",
+      "delay": 324.0,
+      "smearing": 0.0,
+      "attenuation": 30.0
+    },
+    "qrc_readout/out0_in0": {
+      "kind": "oscillator",
+      "frequency": 5.4e9,
+      "power": -23.5
+    },
+    "qrc_drive/out5": {
+      "kind": "oscillator",
+      "frequency": 4.7e9,
+      "power": 0.0
+    }
+  },
+  "native_gates": {
+    "single_qubit": {
+      "q2": {
+        "RX": [
+          [
+            "q2/drive",
+            {
+              "kind": "pulse",
+              "duration": 200.0,
+              "amplitude": 0.43142766396318016,
+              "envelope": {
+                "kind": "gaussian",
+                "rel_sigma": 0.25
+              },
+              "relative_phase": 0.0
+            }
+          ]
+        ],
+        "RX90": [
+          [
+            "q2/drive",
+            {
+              "kind": "pulse",
+              "duration": 200.0,
+              "amplitude": 0.2617467539557894,
+              "envelope": {
+                "kind": "gaussian",
+                "rel_sigma": 0.25
+              },
+              "relative_phase": 0.0
+            }
+          ]
+        ],
+        "MZ": [
+          [
+            "q2/acquisition",
+            {
+              "kind": "readout",
+              "acquisition": {
+                "kind": "acquisition",
+                "duration": 1000.0
+              },
+              "probe": {
+                "kind": "pulse",
+                "duration": 1000.0,
+                "amplitude": 0.3,
+                "envelope": {
+                  "kind": "rectangular"
+                },
+                "relative_phase": 0.0
+              }
+            }
+          ]
+        ]
+      }
+    },
+    "two_qubit": {},
+    "coupler": {}
+  }
+}
