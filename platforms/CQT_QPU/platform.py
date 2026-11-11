@@ -37,20 +37,42 @@ FLUX_LINES = {
     16: {2: "tc4_5", 3: "tc10_11", 4: "tc4_9"},
     18: {2: "tc5_6", 3: "tc9_10", 4: "tc10_15"},
 }
+
+QRC = {
+    2: {
+        "io1": ["q1", "q2", "q5", "q6", "q7"],
+        2: ["q4"],
+        4: ["q10"],
+        5: ["q9"],
+        6: ["q7"],
+    },
+    5: {
+        "io1": ["q3", "q4", "q9", "q10"],
+        2: ["q1"],
+        3: ["q5"],
+        4: ["q6"],
+        5: ["q3"],
+        6: ["q2"],
+    },
+}
+
 """Flux lines of the QCM modules, from the Garnet wiring table.
 
 Elements named ``tc{a}_{b}`` are tunable couplers (``TC a-b``), the others are qubits.
 """
+QUBITS = [f"q{k}" for k in range(1, 11) if k != 8]
 
 
 def _elements() -> tuple[dict[str, Qubit], dict[str, Qubit]]:
     names = [e for lines in FLUX_LINES.values() for e in lines.values()]
     qubits = {
-        "q2": Qubit.default("q2", channels=["probe", "acquisition", "drive", "flux"])
-    } | {
-        name: Qubit.default(name, channels=["flux"])
-        for name in names
-        if not name.startswith("tc") and name != "q2"
+        qid: Qubit.default(
+            qid,
+            channels=["probe", "acquisition", "drive", "flux"]
+            if qid in names
+            else ["probe", "acquisition", "drive"],
+        )
+        for qid in QUBITS
     }
     couplers = {name: Qubit.coupler(name) for name in names if name.startswith("tc")}
     return qubits, couplers
@@ -59,22 +81,25 @@ def _elements() -> tuple[dict[str, Qubit], dict[str, Qubit]]:
 def create() -> Hardware:
     """Create the platform: QRC readout and drive, QCM flux lines."""
     qubits, couplers = _elements()
-    cluster = {
-        "qrc_readout": (READOUT_SLOT, {"io1": ["q2"]}),
-        "qrc_drive": (DRIVE_SLOT, {6: ["q2"]}),
-    } | {
+    cluster = {f"qrc{slot}": (slot, port_map) for slot, port_map in QRC.items()} | {
         f"qcm{slot}": (slot, {port: [name] for port, name in lines.items()})
         for slot, lines in FLUX_LINES.items()
     }
     channels = map_ports(cluster, qubits, couplers)
 
-    qubit = qubits["q2"]
-    channels[qubit.probe] = channels[qubit.probe].model_copy(
-        update={"lo": "qrc_readout/out0_in0"}
-    )
-    channels[qubit.drive] = channels[qubit.drive].model_copy(
-        update={"lo": "qrc_drive/out5"}
-    )
+    for slot, port_map in QRC.items():
+        for port, qid_array in port_map.items():
+            if port == "io1":
+                feedline_lo = f"qrc{slot}/out0_in0"
+                for qid in qid_array:
+                    channels[qubits[qid].probe] = channels[
+                        qubits[qid].probe
+                    ].model_copy(update={"lo": feedline_lo})
+            else:
+                qid = qid_array[0]
+                channels[qubits[qid].drive] = channels[qubits[qid].drive].model_copy(
+                    update={"lo": f"qrc{slot}/out{port - 1}"}
+                )
 
     controller = Cluster(
         name="cluster0",

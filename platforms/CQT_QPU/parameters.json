@@ -6,13 +6,13 @@
     "configs": {
         "q2/drive": {
             "kind": "iq",
-            "frequency": 4609553960.020102,
+            "frequency": 4608543859.01,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
         "q2/probe": {
             "kind": "iq",
-            "frequency": 5101673609.371937,
+            "frequency": 5116224489.795918,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
@@ -25,12 +25,17 @@
             "kernel": null,
             "attenuation": 30.0
         },
-        "qrc_readout/out0_in0": {
+        "qrc2/out0_in0": {
             "kind": "oscillator",
             "frequency": 5400000000.0,
             "power": -23.5
         },
-        "qrc_drive/out5": {
+        "qrc5/out0_in0": {
+            "kind": "oscillator",
+            "frequency": 5400000000.0,
+            "power": -23.5
+        },
+        "qrc5/out5": {
             "kind": "oscillator",
             "frequency": 4700000000.0,
             "power": 0.0
@@ -67,7 +72,7 @@
         },
         "coupler_tc1_2/flux": {
             "kind": "dc",
-            "offset": -0.2,
+            "offset": 0.0,
             "filters": []
         },
         "coupler_tc1_4/flux": {
@@ -77,7 +82,7 @@
         },
         "coupler_tc2_5/flux": {
             "kind": "dc",
-            "offset": -0.3,
+            "offset": 0.0,
             "filters": []
         },
         "coupler_tc3_4/flux": {
@@ -148,7 +153,7 @@
         },
         "q1/probe": {
             "kind": "iq",
-            "frequency": 4969998888.3813,
+            "frequency": 4981608040.201005,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
@@ -307,6 +312,46 @@
             "iq_angle": null,
             "kernel": null,
             "attenuation": 30.0
+        },
+        "qrc5/out1": {
+            "kind": "oscillator",
+            "frequency": 4400000000.0,
+            "power": 0.0
+        },
+        "qrc5/out2": {
+            "kind": "oscillator",
+            "frequency": 4400000000.0,
+            "power": 0.0
+        },
+        "qrc5/out3": {
+            "kind": "oscillator",
+            "frequency": 4700000000.0,
+            "power": 0.0
+        },
+        "qrc5/out4": {
+            "kind": "oscillator",
+            "frequency": 4400000000.0,
+            "power": 0.0
+        },
+        "qrc2/out1": {
+            "kind": "oscillator",
+            "frequency": 4700000000.0,
+            "power": 0.0
+        },
+        "qrc2/out3": {
+            "kind": "oscillator",
+            "frequency": 4700000000.0,
+            "power": 0.0
+        },
+        "qrc2/out4": {
+            "kind": "oscillator",
+            "frequency": 4400000000.0,
+            "power": 0.0
+        },
+        "qrc2/out5": {
+            "kind": "oscillator",
+            "frequency": 4400000000.0,
+            "power": 0.0
         }
     },
     "native_gates": {
@@ -373,7 +418,7 @@
             "q1": {
                 "RX": [
                     [
-                        "q2/drive",
+                        "q1/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -389,7 +434,7 @@
                 ],
                 "RX90": [
                     [
-                        "q2/drive",
+                        "q1/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -406,16 +451,16 @@
                 "RX12": null,
                 "MZ": [
                     [
-                        "q2/acquisition",
+                        "q1/acquisition",
                         {
                             "kind": "readout",
                             "acquisition": {
                                 "kind": "acquisition",
-                                "duration": 1000.0
+                                "duration": 5000.0
                             },
                             "probe": {
                                 "kind": "pulse",
-                                "duration": 1000.0,
+                                "duration": 5000.0,
                                 "amplitude": 0.3,
                                 "envelope": {
                                     "kind": "rectangular"
@@ -432,7 +477,7 @@
             "q3": {
                 "RX": [
                     [
-                        "q2/drive",
+                        "q3/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -448,7 +493,7 @@
                 ],
                 "RX90": [
                     [
-                        "q2/drive",
+                        "q3/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -465,7 +510,7 @@
                 "RX12": null,
                 "MZ": [
                     [
-                        "q2/acquisition",
+                        "q3/acquisition",
                         {
                             "kind": "readout",
                             "acquisition": {
@@ -491,7 +536,7 @@
             "q4": {
                 "RX": [
                     [
-                        "q2/drive",
+                        "q4/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -507,7 +552,7 @@
                 ],
                 "RX90": [
                     [
-                        "q2/drive",
+                        "q4/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -524,7 +569,7 @@
                 "RX12": null,
                 "MZ": [
                     [
-                        "q2/acquisition",
+                        "q4/acquisition",
                         {
                             "kind": "readout",
                             "acquisition": {
@@ -550,7 +595,7 @@
             "q5": {
                 "RX": [
                     [
-                        "q2/drive",
+                        "q5/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -566,7 +611,7 @@
                 ],
                 "RX90": [
                     [
-                        "q2/drive",
+                        "q5/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -583,7 +628,7 @@
                 "RX12": null,
                 "MZ": [
                     [
-                        "q2/acquisition",
+                        "q5/acquisition",
                         {
                             "kind": "readout",
                             "acquisition": {
@@ -609,7 +654,7 @@
             "q6": {
                 "RX": [
                     [
-                        "q2/drive",
+                        "q6/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -625,7 +670,7 @@
                 ],
                 "RX90": [
                     [
-                        "q2/drive",
+                        "q6/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -642,7 +687,7 @@
                 "RX12": null,
                 "MZ": [
                     [
-                        "q2/acquisition",
+                        "q6/acquisition",
                         {
                             "kind": "readout",
                             "acquisition": {
@@ -668,7 +713,7 @@
             "q7": {
                 "RX": [
                     [
-                        "q2/drive",
+                        "q7/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -684,7 +729,7 @@
                 ],
                 "RX90": [
                     [
-                        "q2/drive",
+                        "q7/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -701,7 +746,7 @@
                 "RX12": null,
                 "MZ": [
                     [
-                        "q2/acquisition",
+                        "q7/acquisition",
                         {
                             "kind": "readout",
                             "acquisition": {
@@ -727,7 +772,7 @@
             "q9": {
                 "RX": [
                     [
-                        "q2/drive",
+                        "q9/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -743,7 +788,7 @@
                 ],
                 "RX90": [
                     [
-                        "q2/drive",
+                        "q9/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -760,7 +805,7 @@
                 "RX12": null,
                 "MZ": [
                     [
-                        "q2/acquisition",
+                        "q9/acquisition",
                         {
                             "kind": "readout",
                             "acquisition": {
@@ -786,7 +831,7 @@
             "q10": {
                 "RX": [
                     [
-                        "q2/drive",
+                        "q10/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -802,7 +847,7 @@
                 ],
                 "RX90": [
                     [
-                        "q2/drive",
+                        "q10/drive",
                         {
                             "kind": "pulse",
                             "duration": 200.0,
@@ -819,7 +864,7 @@
                 "RX12": null,
                 "MZ": [
                     [
-                        "q2/acquisition",
+                        "q10/acquisition",
                         {
                             "kind": "readout",
                             "acquisition": {
