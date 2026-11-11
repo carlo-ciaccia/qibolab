@@ -6,13 +6,13 @@
     "configs": {
         "q2/drive": {
             "kind": "iq",
-            "frequency": 4607038096.0,
+            "frequency": 4607031974.0,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
         "q2/probe": {
             "kind": "iq",
-            "frequency": 5116224489.795918,
+            "frequency": 5103901257.472686,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
@@ -20,8 +20,8 @@
             "kind": "acquisition",
             "delay": 324.0,
             "smearing": 0.0,
-            "threshold": null,
-            "iq_angle": null,
+            "threshold": -0.006929392424831639,
+            "iq_angle": -0.45364906803519095,
             "kernel": null,
             "attenuation": 30.0
         },
@@ -147,13 +147,13 @@
         },
         "q1/drive": {
             "kind": "iq",
-            "frequency": 4310589949.0,
+            "frequency": 4310638919.0,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
         "q1/probe": {
             "kind": "iq",
-            "frequency": 4981632653.061225,
+            "frequency": 4968299319.727892,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
@@ -161,20 +161,20 @@
             "kind": "acquisition",
             "delay": 324.0,
             "smearing": 0.0,
-            "threshold": null,
-            "iq_angle": null,
+            "threshold": -0.007750428144732894,
+            "iq_angle": 0.3023115956842875,
             "kernel": null,
             "attenuation": 30.0
         },
         "q3/drive": {
             "kind": "iq",
-            "frequency": 4328484041.0,
+            "frequency": 4328452190.0,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
         "q3/probe": {
             "kind": "iq",
-            "frequency": 4979795918.367347,
+            "frequency": 4970705009.276438,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
@@ -182,8 +182,8 @@
             "kind": "acquisition",
             "delay": 324.0,
             "smearing": 0.0,
-            "threshold": null,
-            "iq_angle": null,
+            "threshold": -0.002652095103501952,
+            "iq_angle": -1.934544102633182,
             "kernel": null,
             "attenuation": 30.0
         },
@@ -195,7 +195,7 @@
         },
         "q4/probe": {
             "kind": "iq",
-            "frequency": 5111632653.061225,
+            "frequency": 5100117501.546073,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
@@ -203,8 +203,8 @@
             "kind": "acquisition",
             "delay": 324.0,
             "smearing": 0.0,
-            "threshold": null,
-            "iq_angle": null,
+            "threshold": -0.0037186989538484333,
+            "iq_angle": -1.2953263228474803,
             "kernel": null,
             "attenuation": 30.0
         },
@@ -216,7 +216,7 @@
         },
         "q5/probe": {
             "kind": "iq",
-            "frequency": 5261836734.693877,
+            "frequency": 5265675118.532261,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
@@ -224,8 +224,8 @@
             "kind": "acquisition",
             "delay": 324.0,
             "smearing": 0.0,
-            "threshold": null,
-            "iq_angle": null,
+            "threshold": 0.0037436073906361787,
+            "iq_angle": 1.6769174940175777,
             "kernel": null,
             "attenuation": 30.0
         },
@@ -237,7 +237,7 @@
         },
         "q6/probe": {
             "kind": "iq",
-            "frequency": 5422857142.857142,
+            "frequency": 5409725829.725829,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
@@ -245,8 +245,8 @@
             "kind": "acquisition",
             "delay": 324.0,
             "smearing": 0.0,
-            "threshold": null,
-            "iq_angle": null,
+            "threshold": -0.00808158833155809,
+            "iq_angle": 1.4522603581057096,
             "kernel": null,
             "attenuation": 30.0
         },
@@ -258,7 +258,7 @@
         },
         "q7/probe": {
             "kind": "iq",
-            "frequency": 5552244897.959184,
+            "frequency": 5544568130.282416,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
@@ -266,8 +266,8 @@
             "kind": "acquisition",
             "delay": 324.0,
             "smearing": 0.0,
-            "threshold": null,
-            "iq_angle": null,
+            "threshold": -0.012160000512975201,
+            "iq_angle": 0.741375029201721,
             "kernel": null,
             "attenuation": 30.0
         },
@@ -279,7 +279,7 @@
         },
         "q9/probe": {
             "kind": "iq",
-            "frequency": 5251632653.061225,
+            "frequency": 5258703360.131932,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
@@ -287,8 +287,8 @@
             "kind": "acquisition",
             "delay": 324.0,
             "smearing": 0.0,
-            "threshold": null,
-            "iq_angle": null,
+            "threshold": 0.0033584777077274603,
+            "iq_angle": 0.02943575212914514,
             "kernel": null,
             "attenuation": 30.0
         },
@@ -300,7 +300,7 @@
         },
         "q10/probe": {
             "kind": "iq",
-            "frequency": 5422653061.22449,
+            "frequency": 5414370232.941662,
             "scale_q": 1.0,
             "phase_q": 0.0
         },
@@ -308,8 +308,8 @@
             "kind": "acquisition",
             "delay": 324.0,
             "smearing": 0.0,
-            "threshold": null,
-            "iq_angle": null,
+            "threshold": -0.004038297280423228,
+            "iq_angle": 2.1214944433345457,
             "kernel": null,
             "attenuation": 30.0
         },
@@ -406,7 +406,7 @@
                         "q1/drive",
                         {
                             "kind": "pulse",
-                            "duration": 77.93337977753666,
+                            "duration": 77.6447249757586,
                             "amplitude": 0.43142766396318016,
                             "envelope": {
                                 "kind": "gaussian",
@@ -426,12 +426,12 @@
                             "kind": "readout",
                             "acquisition": {
                                 "kind": "acquisition",
-                                "duration": 5000.0
+                                "duration": 1000.0
                             },
                             "probe": {
                                 "kind": "pulse",
-                                "duration": 5000.0,
-                                "amplitude": 0.3,
+                                "duration": 1000.0,
+                                "amplitude": 0.5,
                                 "envelope": {
                                     "kind": "rectangular"
                                 },
@@ -450,7 +450,7 @@
                         "q3/drive",
                         {
                             "kind": "pulse",
-                            "duration": 44.08009885692497,
+                            "duration": 43.47748372464336,
                             "amplitude": 0.25,
                             "envelope": {
                                 "kind": "gaussian",
@@ -470,11 +470,11 @@
                             "kind": "readout",
                             "acquisition": {
                                 "kind": "acquisition",
-                                "duration": 5000.0
+                                "duration": 1000.0
                             },
                             "probe": {
                                 "kind": "pulse",
-                                "duration": 5000.0,
+                                "duration": 1000.0,
                                 "amplitude": 0.5,
                                 "envelope": {
                                     "kind": "rectangular"
@@ -514,12 +514,12 @@
                             "kind": "readout",
                             "acquisition": {
                                 "kind": "acquisition",
-                                "duration": 5000.0
+                                "duration": 1000.0
                             },
                             "probe": {
                                 "kind": "pulse",
-                                "duration": 5000.0,
-                                "amplitude": 0.3,
+                                "duration": 1000.0,
+                                "amplitude": 0.5,
                                 "envelope": {
                                     "kind": "rectangular"
                                 },
@@ -558,11 +558,11 @@
                             "kind": "readout",
                             "acquisition": {
                                 "kind": "acquisition",
-                                "duration": 5000.0
+                                "duration": 1000.0
                             },
                             "probe": {
                                 "kind": "pulse",
-                                "duration": 5000.0,
+                                "duration": 1000.0,
                                 "amplitude": 0.5,
                                 "envelope": {
                                     "kind": "rectangular"
@@ -602,12 +602,12 @@
                             "kind": "readout",
                             "acquisition": {
                                 "kind": "acquisition",
-                                "duration": 5000.0
+                                "duration": 1000.0
                             },
                             "probe": {
                                 "kind": "pulse",
-                                "duration": 5000.0,
-                                "amplitude": 0.3,
+                                "duration": 1000.0,
+                                "amplitude": 0.5,
                                 "envelope": {
                                     "kind": "rectangular"
                                 },
@@ -626,7 +626,7 @@
                         "q7/drive",
                         {
                             "kind": "pulse",
-                            "duration": 100.0,
+                            "duration": 50.0,
                             "amplitude": 0.43142766396318016,
                             "envelope": {
                                 "kind": "gaussian",
@@ -646,12 +646,12 @@
                             "kind": "readout",
                             "acquisition": {
                                 "kind": "acquisition",
-                                "duration": 5000.0
+                                "duration": 1000.0
                             },
                             "probe": {
                                 "kind": "pulse",
-                                "duration": 5000.0,
-                                "amplitude": 0.3,
+                                "duration": 1000.0,
+                                "amplitude": 0.5,
                                 "envelope": {
                                     "kind": "rectangular"
                                 },
@@ -690,11 +690,11 @@
                             "kind": "readout",
                             "acquisition": {
                                 "kind": "acquisition",
-                                "duration": 5000.0
+                                "duration": 1000.0
                             },
                             "probe": {
                                 "kind": "pulse",
-                                "duration": 5000.0,
+                                "duration": 1000.0,
                                 "amplitude": 0.5,
                                 "envelope": {
                                     "kind": "rectangular"
@@ -734,11 +734,11 @@
                             "kind": "readout",
                             "acquisition": {
                                 "kind": "acquisition",
-                                "duration": 5000.0
+                                "duration": 1000.0
                             },
                             "probe": {
                                 "kind": "pulse",
-                                "duration": 5000.0,
+                                "duration": 1000.0,
                                 "amplitude": 0.5,
                                 "envelope": {
                                     "kind": "rectangular"
