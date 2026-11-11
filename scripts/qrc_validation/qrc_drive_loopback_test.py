@@ -2,8 +2,8 @@
 
 Usage (from the repository root)::
 
-    python platforms/qrc_drive_loopback_test.py          # dry run
-    python platforms/qrc_drive_loopback_test.py --run    # on hardware
+    python scripts/qrc_validation/qrc_drive_loopback_test.py          # dry run
+    python scripts/qrc_validation/qrc_drive_loopback_test.py --run    # on hardware
 
 Cabling: output O3 -> input I2 of the QRC in slot 2. The readout on port ``io2``
 measures what the drive pulse on O3 sends into I2, and is played at zero amplitude
@@ -15,6 +15,7 @@ zero-amplitude run (noise floor).
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +29,9 @@ from qibolab import (
     Rectangular,
     create_platform,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from common import PLATFORMS
 
 PLATFORM = "qblox_qrc_drive_loopback"
 DRIVE_NS = 2000
@@ -60,7 +64,7 @@ def main() -> None:
     parser.add_argument("--run", action="store_true", help="execute on hardware")
     args = parser.parse_args()
 
-    os.environ.setdefault("QIBOLAB_PLATFORMS", str(Path(__file__).parent))
+    os.environ.setdefault("QIBOLAB_PLATFORMS", str(PLATFORMS))
     platform = create_platform(PLATFORM)
     controller = platform.instruments["cluster0"]
     print("Platform:", platform.name, "| cluster address:", controller.address)

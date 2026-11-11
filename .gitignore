@@ -147,3 +147,6 @@ CLAUDE.md
 
 # Generated plots
 *.png
+
+# hardware scripts: figures and data
+scripts/output/

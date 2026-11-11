@@ -2,8 +2,8 @@
 
 Usage (from the repository root)::
 
-    python platforms/qrc_drive_scope.py            # dry run
-    python platforms/qrc_drive_scope.py --run      # on hardware, saves a PNG
+    python scripts/qrc_validation/qrc_drive_scope.py            # dry run
+    python scripts/qrc_validation/qrc_drive_scope.py --run      # on hardware, saves a PNG
 
 Uses the ``qblox_qrc_drive_loopback`` platform (O3 cabled to I2, 20 dB attenuation
 on all ports). A Gaussian pulse is played on the drive channel while the scope
@@ -15,6 +15,7 @@ LO) would leave an oscillation at the IF.
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -32,12 +33,15 @@ from qibolab import (
     create_platform,
 )
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from common import OUTPUT_DIR, PLATFORMS
+
 PLATFORM = "qblox_qrc_drive_loopback"
 PULSE_NS = 1000
 AMPLITUDE = 0.1  # normalized, kept low on purpose
 NSHOTS = 256
 SCOPE_NS = 16384  # scope memory: the trace length, and the minimum RAW duration
-OUTPUT = Path(__file__).parent / "qrc_drive_scope.png"
+OUTPUT = OUTPUT_DIR / "qrc_drive_scope.png"
 
 
 def main() -> None:
@@ -46,7 +50,7 @@ def main() -> None:
     parser.add_argument("--show", action="store_true", help="open the plot window")
     args = parser.parse_args()
 
-    os.environ.setdefault("QIBOLAB_PLATFORMS", str(Path(__file__).parent))
+    os.environ.setdefault("QIBOLAB_PLATFORMS", str(PLATFORMS))
     platform = create_platform(PLATFORM)
 
     drive = Pulse(

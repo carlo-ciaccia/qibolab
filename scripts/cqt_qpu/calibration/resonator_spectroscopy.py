@@ -2,8 +2,8 @@
 
 Usage (from the repository root)::
 
-    python platforms/cqt_resonator_spectroscopy.py            # dry run
-    python platforms/cqt_resonator_spectroscopy.py --run      # on hardware
+    python scripts/cqt_qpu/calibration/resonator_spectroscopy.py            # dry run
+    python scripts/cqt_qpu/calibration/resonator_spectroscopy.py --run      # on hardware
 
 Sweeps the probe frequency around the readout frequency of the device config, using
 the platform's MZ native gate (1 us square probe, amplitude 0.3). The drive is not
@@ -13,6 +13,7 @@ prints the frequency of the amplitude minimum.
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -20,11 +21,14 @@ import numpy as np
 
 from qibolab import AcquisitionType, AveragingMode, Parameter, Sweeper, create_platform
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from common import OUTPUT_DIR, PLATFORMS
+
 PLATFORM = "CQT_QPU"
 QUBIT = "q2"
 SPAN, STEP = 40e6, 0.5e6  # Hz, around the configured readout frequency
 NSHOTS = 1024
-OUTPUT = Path(__file__).parent / "cqt_resonator_spectroscopy.png"
+OUTPUT = OUTPUT_DIR / "cqt_resonator_spectroscopy.png"
 
 
 def main() -> None:
@@ -36,7 +40,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    os.environ.setdefault("QIBOLAB_PLATFORMS", str(Path(__file__).parent))
+    os.environ.setdefault("QIBOLAB_PLATFORMS", str(PLATFORMS))
     platform = create_platform(PLATFORM)
     controller = platform.instruments["cluster0"]
 

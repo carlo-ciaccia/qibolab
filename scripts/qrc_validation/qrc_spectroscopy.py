@@ -2,8 +2,8 @@
 
 Usage (from the repository root)::
 
-    python platforms/qrc_spectroscopy.py            # dry run
-    python platforms/qrc_spectroscopy.py --run      # on hardware, saves a PNG
+    python scripts/qrc_validation/qrc_spectroscopy.py            # dry run
+    python scripts/qrc_validation/qrc_spectroscopy.py --run      # on hardware, saves a PNG
 
 Sweeps the probe frequency and plots the integrated amplitude and phase. In the
 O1 -> I1 loopback there is no resonator, so the trace shows the response of the
@@ -12,6 +12,7 @@ cabling and the module (flat apart from a slow ripple), not a resonance dip.
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -30,12 +31,15 @@ from qibolab import (
     create_platform,
 )
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from common import OUTPUT_DIR, PLATFORMS
+
 PLATFORM = "qblox_qrc_loopback"
 START, STOP, STEP = 5.01e9, 5.09e9, 1e6  # Hz, LO at 5 GHz -> IF 10-90 MHz
 DURATION_NS = 1000
 AMPLITUDE = 0.05
 NSHOTS = 256
-OUTPUT = Path(__file__).parent / "qrc_spectroscopy.png"
+OUTPUT = OUTPUT_DIR / "qrc_spectroscopy.png"
 
 
 def main() -> None:
@@ -43,7 +47,7 @@ def main() -> None:
     parser.add_argument("--run", action="store_true", help="execute on hardware")
     args = parser.parse_args()
 
-    os.environ.setdefault("QIBOLAB_PLATFORMS", str(Path(__file__).parent))
+    os.environ.setdefault("QIBOLAB_PLATFORMS", str(PLATFORMS))
     platform = create_platform(PLATFORM)
 
     readout = Readout(

@@ -2,8 +2,8 @@
 
 Usage (from the repository root)::
 
-    python platforms/qrc_overrange_diagnosis.py          # dry run, no hardware
-    python platforms/qrc_overrange_diagnosis.py --run    # on hardware
+    python scripts/qrc_validation/qrc_overrange_diagnosis.py          # dry run, no hardware
+    python scripts/qrc_validation/qrc_overrange_diagnosis.py --run    # on hardware
 
 The cluster resets itself at the start of every ``execute`` (``Cluster.play``), then
 compiles the sequences, configures the modules (LO, attenuation) and plays. The
@@ -36,6 +36,7 @@ Needs the cluster to be free: the script stops if a sequencer is armed or runnin
 
 import argparse
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -43,6 +44,9 @@ from pathlib import Path
 import numpy as np
 
 from qibolab import AcquisitionType, AveragingMode, Parameter, Sweeper, create_platform
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from common import PLATFORMS
 
 PLATFORM = "CQT_QPU"
 QUBIT = "q2"
@@ -126,7 +130,7 @@ def main() -> None:
     parser.add_argument("--nshots", type=int, default=256)
     args = parser.parse_args()
 
-    os.environ.setdefault("QIBOLAB_PLATFORMS", str(Path(__file__).parent))
+    os.environ.setdefault("QIBOLAB_PLATFORMS", str(PLATFORMS))
     platform = create_platform(PLATFORM)
     controller = platform.instruments["cluster0"]
     qubit = platform.qubits[QUBIT]
