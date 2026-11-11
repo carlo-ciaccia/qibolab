@@ -357,9 +357,27 @@ def test_qrc_input_attenuation_can_differ_from_output():
     }
 
 
-def test_qrc_invalid_input_attenuation_is_rejected():
+def test_qrc_input_attenuation_can_exceed_the_output_one():
+    """The input attenuators go beyond 31.5 dB, e.g. 40 dB is used by Qblox."""
     channels, configs = _readout_channels()
     configs["q0/acquisition"] = AcquisitionConfig(delay=0, smearing=0, attenuation=40)
+    module_config = ModuleConfig.build(
+        channels,
+        configs,
+        {"q0/acquisition": configs["qrc/out0_in0"]},
+        {},
+        is_qcm_non_rf_type=False,
+        is_qrc_type=True,
+    )
+    assert module_config.ports["in0_att"] == 40
+
+
+@pytest.mark.parametrize("attenuation", [-0.5, 63.5, 30.25])
+def test_qrc_invalid_input_attenuation_is_rejected(attenuation):
+    channels, configs = _readout_channels()
+    configs["q0/acquisition"] = AcquisitionConfig(
+        delay=0, smearing=0, attenuation=attenuation
+    )
     with pytest.raises(ValueError, match="attenuation"):
         ModuleConfig.build(
             channels,

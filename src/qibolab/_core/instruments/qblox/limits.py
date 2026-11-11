@@ -74,11 +74,23 @@ parameters are 0-based (``out0_in0``).
 """
 QRC_ATTENUATION_STEP = 0.5
 """Resolution of the QRC input and output attenuators, in dB."""
-QRC_MAX_ATTENUATION = 31.5
-"""Upper bound of the QRC attenuators, in dB.
+QRC_MAX_OUTPUT_ATTENUATION = 31.5
+"""Upper bound of the QRC output attenuators, in dB.
 
-The actual maximum depends on the frequency (20.5-31.5 dB), and is checked by the
-hardware driver.
+The output line has one step attenuator of 31.5 dB, part of which is already used by the
+frequency plan. The actual maximum depends on the frequency (it is at least 15 dB), and
+is checked by the hardware driver.
+
+https://docs.qblox.com/en/main/products/architecture/modules/qrc.html
+"""
+QRC_MAX_INPUT_ATTENUATION = 63.0
+"""Upper bound of the QRC input attenuators, in dB.
+
+The input line has two step attenuators of 31.5 dB each, part of which is already used by
+the frequency plan. The actual maximum depends on the frequency (it is at least 40 dB),
+and is checked by the hardware driver.
+
+https://docs.qblox.com/en/main/products/architecture/modules/qrc.html
 """
 
 SEQUENCER_REGISTERS = 64

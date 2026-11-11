@@ -37,7 +37,10 @@ exists when connecting to the cluster.
 The LOs of ``o1`` and ``o2`` are shared with the inputs ``i1`` and ``i2``
 (``qrc/out0_in0``, ``qrc/out1_in1``). The input and output attenuators follow the
 power of the LO of their port, in dB with opposite sign (e.g. a power of ``-20`` sets
-20 dB), in steps of 0.5 dB.
+20 dB), in steps of 0.5 dB. The input attenuation can be set separately with
+``AcquisitionConfig.attenuation``. Inputs accept up to 63 dB and outputs up to 31.5 dB,
+but the real maximum depends on the frequency (at least 40 dB for the inputs and 15 dB
+for the outputs), and is enforced by the hardware driver.
 
 The following are not supported yet:
 

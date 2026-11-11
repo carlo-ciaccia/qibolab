@@ -18,7 +18,11 @@ from qibolab._core.components.filters import (
 from qibolab._core.serialize import Model
 
 from ..identifiers import SlotId
-from ..limits import QRC_ATTENUATION_STEP, QRC_MAX_ATTENUATION
+from ..limits import (
+    QRC_ATTENUATION_STEP,
+    QRC_MAX_INPUT_ATTENUATION,
+    QRC_MAX_OUTPUT_ATTENUATION,
+)
 
 __all__ = []
 
@@ -268,13 +272,23 @@ class PortConfig(BaseModel):
         self.att = -int(lo.power)
 
     def qrc_att(self, att: float) -> None:
-        """Set the attenuation of a QRC port, in dB."""
+        """Set the attenuation of a QRC port, in dB.
+
+        Inputs can be attenuated more than outputs. Only the upper bounds of the
+        hardware are checked here, the maximum depending on the LO frequency is
+        enforced by the hardware driver.
+        """
+        maximum = (
+            QRC_MAX_INPUT_ATTENUATION
+            if self.path.startswith("in")
+            else QRC_MAX_OUTPUT_ATTENUATION
+        )
         steps = att / QRC_ATTENUATION_STEP
-        if not 0 <= att <= QRC_MAX_ATTENUATION or abs(steps - round(steps)) > 1e-9:
+        if not 0 <= att <= maximum or abs(steps - round(steps)) > 1e-9:
             raise ValueError(
                 f"QRC attenuation of port {self.path!r} ({att} dB) must be a "
                 f"multiple of {QRC_ATTENUATION_STEP} dB in the range "
-                f"[0, {QRC_MAX_ATTENUATION}] dB."
+                f"[0, {maximum}] dB."
             )
         self.att = int(att) if float(att).is_integer() else att
 
