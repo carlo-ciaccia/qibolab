@@ -271,7 +271,9 @@ class Cluster(Controller):
         )
 
         # configure the modules
-        _module_configs = self._configure_modules(configs)
+        _module_configs = self._configure_modules(
+            configs, self._active_channels(batched_seqs, sweepers_)
+        )
 
         # compute intermediate values for the experiment, such as expected frequencies
         ifs_dict = (
@@ -389,14 +391,46 @@ class Cluster(Controller):
                 # an indefinite wait during `wait_sync`.
                 seq.sync_en(False)
 
-    def _configure_modules(self, configs: Configs) -> dict[SlotId, config.ModuleConfig]:
+    def _active_channels(
+        self, sequences: list[PulseSequence], sweepers: list[ParallelSweepers]
+    ) -> set[ChannelId]:
+        """Channels involved in an experiment, through its sequences or sweepers.
+
+        The probe channels, which are not in the module channels, are replaced by the
+        acquisition channels they belong to.
+        """
+        owners = {
+            ch.probe: id
+            for id, ch in self.channels.items()
+            if isinstance(ch, AcquisitionChannel) and ch.probe is not None
+        }
+        involved = {ch for ps in sequences for ch in ps.channels} | {
+            ch
+            for parsweep in sweepers
+            for sweep in parsweep
+            for ch in (sweep.channels or [])
+        }
+        return {owners.get(ch, ch) for ch in involved}
+
+    def _configure_modules(
+        self, configs: Configs, active: set[ChannelId] | None = None
+    ) -> dict[SlotId, config.ModuleConfig]:
         """Configure module settings (e.g. LOs, Mixers).
+
+        If ``active`` is given, the QRC modules are only configured for the channels in
+        it, since writing the settings of an unused port can raise the overrange flag of
+        its inputs. The other modules are always configured for all their channels, e.g.
+        to apply the static flux offsets.
 
         Returns a dictionary mapping slots to their respective ModuleConfig.
         """
         modcfgs = {}
         for slot, chs in self._channels_by_module.items():
             module = self._modules[slot]
+            if active is not None and module.is_qrc_type:
+                chs = [(id, address) for id, address in chs if id in active]
+                if len(chs) == 0:
+                    continue
             ids = {id for id, _ in chs}
             channels = {id: ch for id, ch in self.channels.items() if id in ids}
             los = config.module.los(self._los, configs, ids)

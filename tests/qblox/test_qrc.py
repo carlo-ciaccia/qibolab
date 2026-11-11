@@ -1,8 +1,10 @@
 """Tests for QRC readout and drive support."""
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import Mock
 
+import numpy as np
 import pytest
 import qblox_instruments as qblox
 from qblox_instruments.types import ClusterType
@@ -22,7 +24,11 @@ from qibolab._core.instruments.qblox.config.sequencer import SequencerConfig
 from qibolab._core.instruments.qblox.platform import map_ports
 from qibolab._core.instruments.qblox.qrc import allowed_sequencers, assign_sequencers
 from qibolab._core.instruments.qblox.validate import validate_qrc_channels
+from qibolab._core.pulses import Pulse, Rectangular
 from qibolab._core.qubits import Qubit
+from qibolab._core.sequence import PulseSequence
+from qibolab._core.sweeper import Parameter as SweepParameter
+from qibolab._core.sweeper import Sweeper
 
 
 def _readout_channels(pair=1):
@@ -389,31 +395,142 @@ def test_qrc_invalid_input_attenuation_is_rejected(attenuation):
         )
 
 
-def test_qrc_lo_frequency_is_set_before_attenuation():
-    """The maximum attenuation depends on the LO frequency."""
-    calls = []
+class _RecordingParameter:
+    def __init__(self, name, calls):
+        self.name = name
+        self.calls = calls
 
-    class Parameter:
-        def __init__(self, name):
-            self.name = name
+    def set(self, value):
+        self.calls.append((self.name, value))
 
-        def set(self, value):
-            calls.append(self.name)
 
-    class FakeModule:
-        is_qrc_type = True
-        is_qrm_type = False
-        is_rf_type = True
+class _RecordingParameters(dict):
+    """Any parameter name is available, writing to it is recorded."""
 
-        def __init__(self):
-            self.parameters = {
-                name: Parameter(name)
-                for name in ("in0_att", "out0_att", "out0_in0_lo_freq")
-            }
+    def __init__(self, calls):
+        super().__init__()
+        self.calls = calls
 
+    def __missing__(self, name):
+        return _RecordingParameter(name, self.calls)
+
+
+class _RecordingModule:
+    """QRC module recording the parameters written to it, in order."""
+
+    is_qrc_type = True
+    is_qcm_type = False
+    is_qrm_type = False
+    is_rf_type = True
+
+    def __init__(self):
+        self.calls = []
+        self.parameters = _RecordingParameters(self.calls)
+
+
+def _recording_module():
+    return _RecordingModule()
+
+
+def test_qrc_input_attenuation_and_lo_order():
+    """The inputs are attenuated before the LOs, which raise the overrange otherwise.
+
+    The maximum attenuation of the outputs depends on the LO frequency, so they are
+    set after it.
+    """
+    module = _recording_module()
     ModuleConfig(
-        ports={"in0_att": 30, "out0_att": 23.5, "out0_in0_lo_freq": 5.4e9}
-    ).apply(FakeModule(), disconnect=False)
+        ports={"out0_att": 23.5, "out0_in0_lo_freq": 5.4e9, "in0_att": 30}
+    ).apply(module, disconnect=False)
 
-    assert calls[0] == "out0_in0_lo_freq"
-    assert set(calls) == {"in0_att", "out0_att", "out0_in0_lo_freq"}
+    assert module.calls == [
+        ("in0_att", 30),
+        ("out0_in0_lo_freq", 5.4e9),
+        ("out0_att", 23.5),
+    ]
+
+
+def test_qrc_input_attenuation_above_the_safe_value_is_completed_after_the_lo():
+    module = _recording_module()
+    ModuleConfig(
+        ports={"in0_att": 50, "out0_in0_lo_freq": 5.4e9, "out0_att": 23.5}
+    ).apply(module, disconnect=False)
+
+    assert module.calls == [
+        ("in0_att", 40),
+        ("out0_in0_lo_freq", 5.4e9),
+        ("in0_att", 50),
+        ("out0_att", 23.5),
+    ]
+
+
+def _readout_and_drive_cluster():
+    """Cluster namespace with a QRC readout (q0, io1) and a drive (q1, o3)."""
+    qubits = {
+        "q0": Qubit.default("q0", channels=["probe", "acquisition"]),
+        "q1": Qubit.default("q1", channels=["drive"]),
+    }
+    channels = map_ports({"qrc": (7, {"io1": ["q0"], 3: ["q1"]})}, qubits)
+    channels["q0/probe"] = channels["q0/probe"].model_copy(
+        update={"lo": "qrc/out0_in0"}
+    )
+    channels["q1/drive"] = channels["q1/drive"].model_copy(update={"lo": "qrc/out2"})
+    configs = {
+        "q0/probe": IqConfig(frequency=5.1e9),
+        "q0/acquisition": AcquisitionConfig(delay=0, smearing=0, attenuation=30),
+        "q1/drive": IqConfig(frequency=4.5e9),
+        "qrc/out0_in0": OscillatorConfig(frequency=5e9, power=-23.5),
+        "qrc/out2": OscillatorConfig(frequency=4.4e9, power=0),
+    }
+    module = _recording_module()
+    cluster = SimpleNamespace(
+        channels=channels, _modules={7: module}, _applied_seqcfgs=None
+    )
+    cluster._probes = Cluster._probes.func(cluster)
+    cluster._los = Cluster._los.func(cluster)
+    cluster._mixers = Cluster._mixers.func(cluster)
+    cluster._channels_by_module = Cluster._channels_by_module.func(cluster)
+    return cluster, configs, module
+
+
+def test_qrc_modules_are_configured_for_the_active_channels_only():
+    """The settings of the unused ports are not written, nor their LOs."""
+    cluster, configs, module = _readout_and_drive_cluster()
+
+    Cluster._configure_modules(cluster, configs, {"q0/acquisition"})
+
+    written = {name for name, _ in module.calls}
+    assert written == {"in0_att", "out0_in0_lo_freq", "out0_att"}
+
+
+def test_qrc_modules_are_configured_for_all_channels_by_default():
+    cluster, configs, module = _readout_and_drive_cluster()
+
+    Cluster._configure_modules(cluster, configs)
+
+    assert "out2_lo_freq" in {name for name, _ in module.calls}
+
+
+def test_qrc_module_without_active_channels_is_left_alone():
+    cluster, configs, module = _readout_and_drive_cluster()
+
+    modcfgs = Cluster._configure_modules(cluster, configs, set())
+
+    assert module.calls == []
+    assert modcfgs == {}
+
+
+def test_active_channels_include_the_acquisition_of_swept_probes():
+    cluster, _, _ = _readout_and_drive_cluster()
+    pulse = Pulse(duration=40, amplitude=0.1, envelope=Rectangular())
+    sweeper = Sweeper(
+        parameter=SweepParameter.frequency,
+        values=np.array([5.0e9, 5.1e9]),
+        channels=["q0/probe"],
+    )
+
+    active = Cluster._active_channels(
+        cluster, [PulseSequence([("q1/drive", pulse)])], [[sweeper]]
+    )
+
+    assert active == {"q1/drive", "q0/acquisition"}

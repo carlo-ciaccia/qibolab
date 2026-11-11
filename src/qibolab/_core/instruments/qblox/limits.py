@@ -83,6 +83,14 @@ is checked by the hardware driver.
 
 https://docs.qblox.com/en/main/products/architecture/modules/qrc.html
 """
+QRC_SAFE_INPUT_ATTENUATION = 40.0
+"""Input attenuation accepted by a QRC whatever the LO frequency, in dB.
+
+The documented maximum input attenuation depends on the frequency, but it is at least
+this value, so it can be set before the LO.
+
+https://docs.qblox.com/en/main/products/architecture/modules/qrc.html
+"""
 QRC_MAX_INPUT_ATTENUATION = 63.0
 """Upper bound of the QRC input attenuators, in dB.
 

@@ -10,6 +10,7 @@ from qibolab._core.components.configs import Configs, MixerOffsetConfig
 from qibolab._core.identifier import ChannelId
 from qibolab._core.serialize import Model
 
+from ..limits import QRC_SAFE_INPUT_ATTENUATION
 from ..utils import has_inputs
 from . import port
 
@@ -58,6 +59,27 @@ def _share_qrc_lo(ports: dict[str, Any]) -> dict[str, Any]:
             )
         result[shared] = value
     return result
+
+
+def _qrc_write_order(ports: dict[str, Any]) -> list[tuple[str, Any]]:
+    """Order in which the QRC port settings are written.
+
+    1. The input attenuators come first, as the Qblox Scheduler does. Writing the LO
+       frequencies with the inputs not attenuated raises the ``DDC_ADC_OVERRANGE`` flag,
+       even without any signal. Since the maximum attenuation depends on the LO
+       frequency, only up to :const:`QRC_SAFE_INPUT_ATTENUATION` is set at this stage.
+    2. The LO frequencies, which also set the maximum of the attenuators.
+    3. The input attenuators beyond the value used above, then the others (outputs).
+    """
+    inputs = [k for k in ports if re.fullmatch(r"in\d_att", k)]
+    los = [k for k in ports if k.endswith("_lo_freq")]
+    others = [k for k in ports if k not in inputs and k not in los]
+    return [
+        *((k, min(ports[k], QRC_SAFE_INPUT_ATTENUATION)) for k in inputs),
+        *((k, ports[k]) for k in los),
+        *((k, ports[k]) for k in inputs if ports[k] > QRC_SAFE_INPUT_ATTENUATION),
+        *((k, ports[k]) for k in others),
+    ]
 
 
 class ModuleType(Flag):
@@ -202,11 +224,7 @@ class ModuleConfig(Model):
             if has_inputs(mod):
                 mod.disconnect_inputs()
 
-        ports = self.ports.items()
-        if mod.is_qrc_type:
-            # the maximum QRC attenuation depends on the LO frequency, which then needs
-            # to be set first
-            ports = sorted(ports, key=lambda item: not item[0].endswith("_lo_freq"))
+        ports = _qrc_write_order(self.ports) if mod.is_qrc_type else self.ports.items()
         for config, value in ports:
             mod.parameters[config].set(value)
 
