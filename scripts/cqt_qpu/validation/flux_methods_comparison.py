@@ -31,6 +31,11 @@ Methods (``--methods``):
 ``pulse``
     A long rectangular flux pulse covering the drive and the readout, with a
     ``Parameter.amplitude`` sweep. The flux is back to the static value after each shot.
+    A pulse rides on the static offset of the channel (``DcConfig.offset``), unlike the
+    flux values of the other methods, which are absolute: the static offset is
+    subtracted from the pulse amplitudes, so that all methods are compared at the same
+    flux. Without this, a channel with a nonzero static offset (as the couplers of the
+    CQT_QPU platform) would show the pulse curve shifted by that offset.
 
 Each one is run with the flux values ascending and descending, to expose a hysteresis or
 a slow settling, and the zero is always included in the values, to expose a constant
@@ -138,8 +143,12 @@ def plan(platform, args, method: str, values: np.ndarray):
     if method == "pulse":
         pulse = Pulse(duration=sequence.duration, amplitude=0.0, envelope=Rectangular())
         sequence.append((flux, pulse))
+        # a pulse is played on top of the static offset of the channel, while the
+        # flux values of the other methods are absolute: the static offset is
+        # subtracted, so that all of them are compared at the same flux
+        static = platform.parameters.configs[flux].offset
         flux_sweeper = Sweeper(
-            parameter=Parameter.amplitude, values=values, pulses=[pulse]
+            parameter=Parameter.amplitude, values=values - static, pulses=[pulse]
         )
     else:
         flux_sweeper = Sweeper(
@@ -265,18 +274,24 @@ def fit(values: np.ndarray, freq: np.ndarray) -> dict:
     return result
 
 
+def _mean_curve(directions: dict) -> np.ndarray:
+    """Mean over the measured directions of the frequencies of one method."""
+    return np.nanmean(list(directions.values()), axis=0)
+
+
 def report(values, curves: dict) -> None:
     """Print the comparison; ``curves[method][direction]`` is the frequency array."""
-    fits = {
-        m: fit(values, np.nanmean([c["up"], c["down"]], axis=0))
-        for m, c in curves.items()
-    }
+    fits = {m: fit(values, _mean_curve(c)) for m, c in curves.items()}
     print(
         f"\n{'method':<14}{'valid':>6}{'p-p MHz':>10}{'c0 GHz':>12}"
         f"{'curv MHz/u^2':>14}{'vertex':>9}{'up-down MHz':>13}"
     )
     for m, f in fits.items():
-        both = np.isfinite(curves[m]["up"]) & np.isfinite(curves[m]["down"])
+        both = (
+            np.isfinite(curves[m]["up"]) & np.isfinite(curves[m]["down"])
+            if "down" in curves[m]
+            else np.zeros(len(values), dtype=bool)
+        )
         hyst = (
             float(
                 np.sqrt(np.mean((curves[m]["up"][both] - curves[m]["down"][both]) ** 2))
@@ -315,31 +330,55 @@ def plot(values, curves, path: Path, target: str = "qubit") -> None:
     import matplotlib.pyplot as plt
 
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 7))
-    reference = (
-        np.nanmean([curves["static"]["up"], curves["static"]["down"]], axis=0)
-        if "static" in curves
-        else None
-    )
+    reference = _mean_curve(curves["static"]) if "static" in curves else None
     for m, c in curves.items():
         line = ax1.plot(values, c["up"] / 1e9, "o-", ms=4, label=f"{m} up")[0]
-        ax1.plot(values, c["down"] / 1e9, "x--", ms=4, color=line.get_color())
         if reference is not None:
             ax2.plot(
                 values, (c["up"] - reference) / 1e6, "o-", ms=4, color=line.get_color()
             )
-            ax2.plot(
-                values,
-                (c["down"] - reference) / 1e6,
-                "x--",
-                ms=4,
-                color=line.get_color(),
-            )
+        if "down" in c:
+            ax1.plot(values, c["down"] / 1e9, "x--", ms=4, color=line.get_color())
+            if reference is not None:
+                ax2.plot(
+                    values,
+                    (c["down"] - reference) / 1e6,
+                    "x--",
+                    ms=4,
+                    color=line.get_color(),
+                )
     ax1.set_ylabel(f"{QUBIT} {target} frequency (GHz)")
     ax1.legend()
     ax2.set_ylabel("minus static (MHz)")
     ax2.set_xlabel("flux (normalized, 1 = 2.5 V); o: ascending, x: descending")
     fig.tight_layout()
     fig.savefig(path, dpi=150)
+    print("Saved", path)
+
+
+def plot_maps(values, freqs, data: dict, path: Path, target: str = "qubit") -> None:
+    """Raw maps, one panel per method (ascending direction), with the extracted line.
+
+    The colour is the amplitude minus the median of its row, to remove the dependence of
+    the background on the frequency.
+    """
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(
+        1, len(data), figsize=(4.5 * len(data), 4.5), sharey=True, squeeze=False
+    )
+    for ax, (method, directions) in zip(axes[0], data.items()):
+        z = directions["up"]
+        amp = np.abs(z)
+        contrast = amp - np.median(amp, axis=1, keepdims=True)
+        mesh = ax.pcolormesh(values, freqs / 1e9, contrast.T, shading="auto")
+        ax.plot(values, extract(z, freqs, target) / 1e9, "r.", ms=5)
+        ax.set_title(method)
+        ax.set_xlabel("flux (normalized, 1 = 2.5 V)")
+        fig.colorbar(mesh, ax=ax, pad=0.01)
+    axes[0, 0].set_ylabel(f"{QUBIT} {target} frequency (GHz)")
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
     print("Saved", path)
 
 
@@ -409,6 +448,12 @@ def main() -> None:
     )
     parser.add_argument("--relaxation", type=float, default=200_000, help="ns")
     parser.add_argument("--nshots", type=int, default=256)
+    parser.add_argument(
+        "--directions",
+        choices=["both", "up"],
+        default="both",
+        help="ascending and descending flux, or only ascending (no hysteresis check)",
+    )
     args = parser.parse_args()
     if args.flux_points % 2 == 0:
         parser.error("--flux-points must be odd, so that 0 is one of the values")
@@ -418,16 +463,20 @@ def main() -> None:
     values = np.linspace(-args.flux_max, args.flux_max, args.flux_points)
     freqs = base(platform, args)[2]
     per_shot = base(platform, args)[0].duration + args.relaxation  # ns
-    runs = 2 * len(args.methods)
+    directions = ("up", "down") if args.directions == "both" else ("up",)
+    runs = len(directions) * len(args.methods)
     seconds = runs * len(values) * len(freqs) * args.nshots * per_shot * 1e-9
     center = (freqs[0] + freqs[-1]) / 2
     print(
         f"line {args.line} ({flux_channel(platform, args.line)}) | {QUBIT} "
         f"{args.target} around {center / 1e9:.5f} GHz | "
         f"flux {values[0]:+.3f}..{values[-1]:+.3f} ({len(values)}) | "
-        f"{len(freqs)} frequencies | methods {', '.join(args.methods)} (up and down)"
+        f"{len(freqs)} frequencies | methods {', '.join(args.methods)} "
+        f"({' and '.join(directions)})"
     )
-    print(f"estimated hardware time: {seconds / 60:.1f} min")
+    print(
+        f"estimated measurement time: {seconds / 60:.1f} min, plus about 5 s per static point"
+    )
     print("offline compilation of the hardware methods:")
     validate_offline(platform, args, values)
     if not args.run:
@@ -440,7 +489,7 @@ def main() -> None:
     try:
         for method in args.methods:
             data[method], curves[method] = {}, {}
-            for direction in ("up", "down"):
+            for direction in directions:
                 ordered = values if direction == "up" else values[::-1]
                 print(f"{method} ({direction}) ...", flush=True)
                 z = measure(platform, args, method, ordered)
@@ -467,6 +516,7 @@ def main() -> None:
     )
     report(values, curves)
     plot(values, curves, OUTPUT / f"{stem}.png", args.target)
+    plot_maps(values, freqs, data, OUTPUT / f"{stem}_maps.png", args.target)
 
 
 if __name__ == "__main__":

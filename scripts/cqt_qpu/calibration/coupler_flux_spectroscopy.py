@@ -94,9 +94,18 @@ def build(platform, coupler: str, args):
     )
     sequence.append((platform.couplers[coupler].flux, flux_pulse))
 
-    fluxes = np.linspace(-args.flux_max, args.flux_max, args.flux_points)
+    amplitudes = np.linspace(-args.flux_max, args.flux_max, args.flux_points)
+    # the pulse is played on top of the static offset of the coupler (parked value), the
+    # flux which is reported, and plotted, is the sum of the two
+    fluxes = (
+        amplitudes + platform.parameters.configs[platform.couplers[coupler].flux].offset
+    )
     sweepers = [
-        [Sweeper(parameter=Parameter.amplitude, values=fluxes, pulses=[flux_pulse])],
+        [
+            Sweeper(
+                parameter=Parameter.amplitude, values=amplitudes, pulses=[flux_pulse]
+            )
+        ],
         [Sweeper(parameter=Parameter.frequency, values=freqs, channels=[freq_channel])],
     ]
     acquisition = next(e for _, e in readout if hasattr(e, "probe")).acquisition
@@ -114,7 +123,9 @@ def plot(coupler, fluxes, freqs, center, z, args):
     ax.plot(fluxes, extremum / 1e9, "r.", ms=4, label="largest deviation")
     ax.axhline(center / 1e9, color="w", ls="--", lw=0.8, label="configured")
     fig.colorbar(mesh, label="|I + iQ| minus row median (a.u.)")
-    ax.set_xlabel(f"{coupler} flux amplitude (normalized, 1 = 2.5 V)")
+    ax.set_xlabel(
+        f"{coupler} flux (static offset + pulse amplitude, normalized, 1 = 2.5 V)"
+    )
     ax.set_ylabel(f"{args.target} frequency (GHz)")
     ax.set_title(f"CQT_QPU {QUBIT} {args.target} spectroscopy vs {coupler} flux")
     ax.legend(loc="upper right")
