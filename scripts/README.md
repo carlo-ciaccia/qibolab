@@ -16,6 +16,6 @@ can, compiles the experiment offline. Figures and data are written to `scripts/o
 | Folder | What it is |
 |---|---|
 | `qrc_validation/` | Checks of the driver and of the QRC itself (loopback tests, scope trace, overrange flag diagnosis). They do not measure a device. The loopback ones use the `qblox_qrc_*` platforms and a cabled output to input. |
-| `cqt_qpu/calibration/` | Experiments that measure the CQT_QPU device: resonator spectroscopy, resonator or qubit spectroscopy against the flux of the couplers. |
+| `cqt_qpu/calibration/` | Experiments that measure the CQT_QPU device: resonator spectroscopy, resonator or qubit spectroscopy against the flux of the couplers, T1 (also checks that delays beyond 65.5 us do not wrap). |
 | `cqt_qpu/validation/` | Tests of the driver on the CQT_QPU device, using the qubit or its resonator as a detector, e.g. the comparison of the four ways of setting a DC flux. |
 | `common.py` | Paths shared by the scripts. |

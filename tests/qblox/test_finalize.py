@@ -8,6 +8,7 @@ from qibolab._core.instruments.qblox.q1asm.ast_ import (
     Asr,
     Block,
     Jlt,
+    Jmp,
     Line,
     Loop,
     Move,
@@ -216,6 +217,102 @@ def test_long_wait_sequential_labels():
     result = transform(block, (wait.long_wait,))
     labels = {el.label for el in result if el.label is not None}
     assert labels == {"wait0", "wait1"}
+
+
+def test_register_wait_split():
+    """A wait read from a register is expanded into a bounded loop and a remainder."""
+    source = Register(number=7)
+    scratch = Registers.wait.value
+    result = transform([Wait(duration=source)], (wait.register_wait,))
+    assert [type(el.instruction) for el in result] == [Move, Jlt, Wait, Sub, Jmp, Wait]
+
+    copy, jump, chunk, sub, back, tail = (el.instruction for el in result)
+    # the swept register is only copied, never modified
+    assert copy.source == source
+    assert copy.destination == scratch
+    assert sub.destination == scratch
+    assert all(getattr(instr, "destination", None) != source for instr in (copy, sub))
+
+    # durations fitting in a single wait skip the loop
+    assert jump.a == scratch
+    assert jump.b == wait.MAX_WAIT + 1
+    assert jump.address == Reference(label=result[5].label)
+    # the chunks leave at least the minimum wait as remainder
+    assert chunk.duration == wait.CHUNK_WAIT
+    assert sub.b == wait.CHUNK_WAIT
+    assert wait.MAX_WAIT + 1 - wait.CHUNK_WAIT >= 4
+    assert back.address == Reference(label=result[1].label)
+    assert tail.duration == scratch
+
+
+def test_register_wait_immediate_untouched():
+    block = [Wait(duration=100), Wait(duration=wait.MAX_WAIT)]
+    result = transform(block, (wait.register_wait,))
+    assert [line.instruction for line in result] == block
+
+
+def test_register_wait_sequential_labels():
+    block = [Wait(duration=Register(number=7)), Wait(duration=Register(number=8))]
+    result = transform(block, (wait.register_wait,))
+    labels = [el.label for el in result if el.label is not None]
+    assert labels == ["rwait0", "rwait0_tail", "rwait1", "rwait1_tail"]
+
+
+def test_register_wait_keeps_annotations():
+    line = Line(instruction=Wait(duration=Register(number=7)), label="w", comment="c")
+    result = transform([line], (wait.register_wait,))
+    assert result[0].label == "w"
+    assert result[0].comment == "c"
+
+
+def test_default_pipeline_register_wait_nops():
+    result = transform([Wait(duration=Register(number=7))], DEFAULT_PIPELINE)
+    for index, line in enumerate(result):
+        if isinstance(line.instruction, Arithmetic):
+            assert isinstance(result[index + 1].instruction, Nop)
+    # the register is readable by the jump
+    assert [type(line.instruction) for line in result[:3]] == [Move, Nop, Jlt]
+
+
+def _run_waits(program: list[Line], duration: int) -> int:
+    """Total time waited by a program, with the source register set to ``duration``."""
+    labels = {line.label: i for i, line in enumerate(program) if line.label}
+    registers = {7: duration}
+    total, pc = 0, 0
+    while pc < len(program):
+        instr = program[pc].instruction
+        pc += 1
+        if isinstance(instr, Move):
+            source = instr.source
+            registers[instr.destination.number] = (
+                registers[source.number] if isinstance(source, Register) else source
+            )
+        elif isinstance(instr, Sub):
+            registers[instr.destination.number] = registers[instr.a.number] - instr.b
+        elif isinstance(instr, Jlt):
+            if registers[instr.a.number] < instr.b:
+                pc = labels[instr.address.label]
+        elif isinstance(instr, Jmp):
+            pc = labels[instr.address.label]
+        elif isinstance(instr, Wait):
+            value = (
+                registers[instr.duration.number]
+                if isinstance(instr.duration, Register)
+                else instr.duration
+            )
+            assert 4 <= value <= wait.MAX_WAIT
+            total += value
+    return total
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [4, 100, wait.MAX_WAIT, wait.MAX_WAIT + 1, 65536 + 3, 120_000, 200_000, 1_000_003],
+)
+def test_register_wait_total_duration(duration):
+    """The expanded program waits for the swept duration, with only legal waits."""
+    program = transform([Wait(duration=Register(number=7))], DEFAULT_PIPELINE)
+    assert _run_waits(program, duration) == duration
 
 
 def test_negative_immediate_move():
