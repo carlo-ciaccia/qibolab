@@ -23,9 +23,27 @@ readouts as integrated single shots (the cloud), then the same sequences classif
 the hardware. The cloud is classified offline too, with both signs of the rotation, to
 show which convention the hardware follows. Nothing is written to the platform files:
 ``--input-attenuation`` only changes the loaded configuration.
+
+The IQ plane of the readout was found to take one of two phases, decided at each reset,
+shared by all the qubits of a QRC. ``--modes`` repeats the check changing what the driver
+does between executes, to find out what triggers it (the modes are run in the given
+order, and the driver is restored after each)::
+
+    reset            as the driver does: cluster reset and every setting rewritten
+    lo-enable        as reset, plus the LO enable of the QRC set before its frequency
+                     (workaround of Qblox BM-66 for the LO after a reset)
+    no-reset         the cluster is reset once, before the first execute, then only the
+                     settings, LOs included, are rewritten
+    no-reset-no-lo   reset once, and the module settings are written only the first time
+
+If the phase stays fixed in a mode and not in ``reset``, what that mode skips is the
+trigger. Each mode ends with the number of executes in each phase, compared with the
+first one. Use ``--qubits`` of the other QRC (slot 2: q1 q2 q5 q6 q7) to check whether
+the module matters.
 """
 
 import argparse
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -61,6 +79,53 @@ def sequences(platform, qubits: list[str], multiplexed: bool):
             )
         plans.append((group, [ground, excited], ids))
     return plans
+
+
+MODES = ("reset", "lo-enable", "no-reset", "no-reset-no-lo")
+
+
+@contextlib.contextmanager
+def driver_mode(mode: str):
+    """Change what the Qblox driver does between executes, restored on exit."""
+    from qibolab._core.instruments.qblox.cluster import Cluster
+    from qibolab._core.instruments.qblox.config.module import ModuleConfig
+
+    reset, apply = Cluster.reset, ModuleConfig.apply
+    state = {"reset": False, "modules": set(), "enabled": set()}
+
+    def reset_once(self) -> None:
+        # the cluster is reset by the first execute only, but the sequencer settings
+        # are always written again, as after a real reset
+        if not state["reset"]:
+            state["reset"] = True
+            reset(self)
+        else:
+            self._applied_seqcfgs = None
+
+    def apply_once(self, mod, disconnect: bool = True) -> None:
+        if id(mod) not in state["modules"]:
+            state["modules"].add(id(mod))
+            apply(self, mod, disconnect)
+
+    def apply_lo_enable(self, mod, disconnect: bool = True) -> None:
+        if mod.is_qrc_type:
+            for key in self.ports:
+                name = key.replace("_lo_freq", "_lo_en")
+                if key.endswith("_lo_freq") and name in mod.parameters:
+                    mod.parameters[name].set(True)
+                    state["enabled"].add(name)
+        apply(self, mod, disconnect)
+
+    if mode in ("no-reset", "no-reset-no-lo"):
+        Cluster.reset = reset_once
+    if mode == "no-reset-no-lo":
+        ModuleConfig.apply = apply_once
+    if mode == "lo-enable":
+        ModuleConfig.apply = apply_lo_enable
+    try:
+        yield state
+    finally:
+        Cluster.reset, ModuleConfig.apply = reset, apply
 
 
 def rotate(z: np.ndarray, angle: float, sign: int) -> np.ndarray:
@@ -162,7 +227,19 @@ def report(rows: list[dict]) -> None:
         print(f"  executes where the hardware does not separate g from e: {bad}")
 
 
-def plot(rows: list[dict], args) -> Path:
+def phase_summary(rows: list[dict], bin_deg: float = 20.0) -> None:
+    """How many executes had the IQ plane at each phase, relative to the first one."""
+    for q in sorted({r["qubit"] for r in rows}):
+        qrows = [r for r in rows if r["qubit"] == q]
+        # the ground centroid is far from the origin, so its phase follows the plane
+        phases = np.degrees([np.angle(r["ground"]) for r in qrows])
+        relative = (phases - phases[0] + 180) % 360 - 180
+        bins = np.round(relative / bin_deg) * bin_deg
+        counts = {f"{b:+.0f}": int((bins == b).sum()) for b in sorted(set(bins))}
+        print(f"  {q}: executes by phase relative to the first (deg): {counts}")
+
+
+def plot(rows: list[dict], args, mode: str = "reset") -> Path:
     qubits = sorted({r["qubit"] for r in rows})
     fig, axes = plt.subplots(
         1, len(qubits), figsize=(5 * len(qubits), 4.5), squeeze=False
@@ -171,12 +248,12 @@ def plot(rows: list[dict], args) -> Path:
         for r in (r for r in rows if r["qubit"] == q):
             ax.plot(r["ground"].real, r["ground"].imag, "b.", alpha=0.6)
             ax.plot(r["excited"].real, r["excited"].imag, "r.", alpha=0.6)
-        ax.set_title(f"{q}: centroids of ground (blue) and excited (red)")
+        ax.set_title(f"{q} [{mode}]: ground (blue) and excited (red) centroids")
         ax.set_xlabel("I (a.u. per ns)")
         ax.set_ylabel("Q")
         ax.set_aspect("equal", adjustable="datalim")
     fig.tight_layout()
-    path = OUTPUT / "cqt_readout_classification_check.png"
+    path = OUTPUT / f"cqt_readout_classification_check_{mode}.png"
     fig.savefig(path, dpi=150)
     print("Saved", path)
     return path
@@ -187,6 +264,14 @@ def main() -> None:
     parser.add_argument("--run", action="store_true", help="execute on hardware")
     parser.add_argument("--qubits", nargs="+", default=["q4"])
     parser.add_argument("--multiplexed", action="store_true", help="read all together")
+    parser.add_argument(
+        "--modes",
+        nargs="+",
+        choices=MODES,
+        default=["reset"],
+        help="what the driver does between executes, run in this order",
+    )
+    parser.add_argument("--quiet", action="store_true", help="only the summaries")
     parser.add_argument("--executes", type=int, default=20, help="iterations")
     parser.add_argument("--nshots", type=int, default=500)
     parser.add_argument("--relaxation", type=float, default=100e3, help="ns")
@@ -218,22 +303,31 @@ def main() -> None:
     plans = sequences(platform, args.qubits, args.multiplexed)
     print(
         f"cluster {controller.address} | {len(plans)} readout group(s) | "
-        f"{args.executes} iterations x 2 executes (each resets the cluster)"
+        f"modes {args.modes} | {args.executes} iterations x 2 executes each"
     )
     if not args.run:
         print("Dry run only. Use --run to execute on the cluster.")
         return
 
     platform.connect()
-    rows: list[dict] = []
     try:
-        for i in range(args.executes):
-            rows += iteration(platform, controller, plans, args, i)
-            print(f"iteration {i} done", flush=True)
+        for mode in args.modes:
+            print(f"\n=== mode {mode} ===", flush=True)
+            rows: list[dict] = []
+            with driver_mode(mode) as state:
+                for i in range(args.executes):
+                    rows += iteration(platform, controller, plans, args, i)
+                    print(f"iteration {i} done", flush=True)
+            if mode == "lo-enable":
+                # without any, the mode did nothing different from reset
+                print(f"LO enables written: {sorted(state['enabled']) or 'NONE'}")
+            if not args.quiet:
+                report(rows)
+            print(f"\nmode {mode}:")
+            phase_summary(rows)
+            plot(rows, args, mode)
     finally:
         platform.disconnect()
-    report(rows)
-    plot(rows, args)
 
 
 if __name__ == "__main__":
