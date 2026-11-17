@@ -147,6 +147,34 @@ def status_flags(controller) -> str:
     return str(status)
 
 
+def sequencer_statuses(controller) -> dict[tuple[int, int], tuple]:
+    """Status of every sequencer of the cluster, read together with the bulk API.
+
+    Each value is ``(status, state, exit code, info flags, warning flags, error flags,
+    log)``. The system status above only summarizes the modules, while a sequencer
+    can report warnings, errors or a not expected state by itself. The flags stay until
+    the sequencer is armed again, so they are those of the last execute.
+    """
+    modules = controller._modules
+    pairs = [
+        (slot, index)
+        for slot, module in modules.items()
+        for index in range(12 if module.is_qrc_type else len(module.sequencers))
+    ]
+    result = {}
+    for pair, st in zip(pairs, controller._cluster.get_sequencer_statuses(pairs)):
+        result[pair] = (
+            st.status.name,
+            st.state.name,
+            st.exit_code,
+            tuple(sorted(f.name for f in st.info_flags)),
+            tuple(sorted(f.name for f in st.warn_flags)),
+            tuple(sorted(f.name for f in st.err_flags)),
+            tuple(st.log),
+        )
+    return result
+
+
 def iteration(platform, controller, plans, args, index: int) -> list[dict]:
     rows = []
     for group, seqs, ids in plans:
@@ -158,6 +186,7 @@ def iteration(platform, controller, plans, args, index: int) -> list[dict]:
             averaging_mode=AveragingMode.SINGLESHOT,
         )
         flags_cloud = status_flags(controller)
+        seq_cloud = sequencer_statuses(controller)
         hw = platform.execute(
             seqs,
             nshots=args.nshots,
@@ -166,6 +195,7 @@ def iteration(platform, controller, plans, args, index: int) -> list[dict]:
             averaging_mode=AveragingMode.CYCLIC,
         )
         flags_hw = status_flags(controller)
+        seq_hw = sequencer_statuses(controller)
         for q in group:
             gid, eid = ids[q]
             gz = np.asarray(raw[gid], dtype=float)
@@ -193,6 +223,7 @@ def iteration(platform, controller, plans, args, index: int) -> list[dict]:
                         for s in (+1, -1)
                     },
                     "flags": (flags_cloud, flags_hw),
+                    "sequencers": (seq_cloud, seq_hw),
                 }
             )
     return rows
@@ -237,6 +268,67 @@ def phase_summary(rows: list[dict], bin_deg: float = 20.0) -> None:
         bins = np.round(relative / bin_deg) * bin_deg
         counts = {f"{b:+.0f}": int((bins == b).sum()) for b in sorted(set(bins))}
         print(f"  {q}: executes by phase relative to the first (deg): {counts}")
+
+
+def phase_bins(rows: list[dict], bin_deg: float = 20.0) -> dict[int, float]:
+    """Phase of each iteration relative to the first, from the first qubit's ground."""
+    first = [r for r in rows if r["qubit"] == rows[0]["qubit"]]
+    phases = np.degrees([np.angle(r["ground"]) for r in first])
+    relative = (phases - phases[0] + 180) % 360 - 180
+    bins = np.round(relative / bin_deg) * bin_deg
+    return {r["iteration"]: float(b) for r, b in zip(first, bins)}
+
+
+PROBLEM_MARKS = ("CLOCK_INSTABILITY", "OUT_OF_RANGE", "OVERFLOW", "ERROR", "INVALID")
+"""Parts of a flag name that make it worth noticing, whatever list it is in."""
+
+
+def abnormal(value: tuple) -> bool:
+    """Whether a sequencer status reports something wrong, flags of the lists aside."""
+    status, _, code, info, warn, err, log = value
+    marked = any(m in flag for flag in info for m in PROBLEM_MARKS)
+    return status != "OKAY" or code != 0 or bool(warn or err or log) or marked
+
+
+def sequencer_report(rows: list[dict]) -> None:
+    """Sequencer statuses and flags seen after the executes, and the IQ phase of those.
+
+    The statuses after the cloud executes are listed with the phase of that execute, to
+    see whether some flag goes with the rotated plane. Sequencers that never left the
+    idle state with no flags are not listed, and ``!!`` marks what looks wrong: a status
+    other than OKAY, an exit code, warnings, errors, a log, or an info flag such as
+    ``CLOCK_INSTABILITY`` or any ``..._OUT_OF_RANGE``.
+    """
+    phase = phase_bins(rows)
+    seen: dict[tuple, dict[str, list]] = {}
+    for r in rows:
+        if r["qubit"] != rows[0]["qubit"]:
+            continue
+        for kind, statuses in zip(("cloud", "hw"), r["sequencers"]):
+            for pair, value in statuses.items():
+                seen.setdefault((pair, value), {"cloud": [], "hw": []})[kind].append(
+                    r["iteration"]
+                )
+    shown = [
+        (pair, value, entry)
+        for (pair, value), entry in sorted(seen.items(), key=lambda kv: kv[0][0])
+        if value[1] != "IDLE" or value[3:] != ((), (), (), ())
+    ]
+    if not shown:
+        print("  sequencers: all idle, no flags")
+        return
+    flagged = sum(abnormal(value) for _, value, _ in shown)
+    print(f"  sequencers: {len(shown)} status/flag combinations, {flagged} marked !!")
+    for pair, value, entry in shown:
+        status, state, code, info, warn, err, log = value
+        phases = sorted({phase[i] for i in entry["cloud"]})
+        mark = "!!" if abnormal(value) else "  "
+        print(
+            f"   {mark} slot {pair[0]} seq {pair[1]}: {status} {state} exit {code} "
+            f"info {list(info)} warn {list(warn)} err {list(err)} log {list(log)} | "
+            f"cloud x{len(entry['cloud'])} at phases {phases}, "
+            f"classification x{len(entry['hw'])}"
+        )
 
 
 def plot(rows: list[dict], args, mode: str = "reset") -> Path:
@@ -325,6 +417,7 @@ def main() -> None:
                 report(rows)
             print(f"\nmode {mode}:")
             phase_summary(rows)
+            sequencer_report(rows)
             plot(rows, args, mode)
     finally:
         platform.disconnect()
