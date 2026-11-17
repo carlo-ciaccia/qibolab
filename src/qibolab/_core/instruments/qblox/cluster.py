@@ -35,7 +35,12 @@ from . import config
 from .batching import batch_sequences_by_cluster_memory_limits
 from .config import PortAddress
 from .identifiers import SequencerMap, SlotId
-from .limits import QRC_SEQUENCERS
+from .limits import (
+    QRC_CONTROL_INSTRUCTION_MEMORY,
+    QRC_READOUT_SEQUENCERS,
+    QRC_SEQUENCERS,
+    QRM_INSTRUCTION_MEMORY,
+)
 from .log import Logger
 from .qrc import assign_sequencers
 from .results import AcquiredData, extract, integration_lengths
@@ -100,10 +105,11 @@ def _batch_sequences(
     qcm_channels: set[ChannelId],
     qrm_channels: set[ChannelId],
     configs: Configs,
+    channel_limits: dict[ChannelId, int] | None = None,
 ) -> list[PulseSequence]:
     batched_seqs = (
         batch_sequences_by_cluster_memory_limits(
-            sequences, sweepers, options, qcm_channels, qrm_channels
+            sequences, sweepers, options, qcm_channels, qrm_channels, channel_limits
         )
         if options.acquisition_type is not AcquisitionType.RAW
         else sequences
@@ -168,6 +174,25 @@ class Cluster(Controller):
     def is_connected(self) -> bool:
         """Determine connections status."""
         return self._cluster is not None
+
+    def _instruction_limits(self) -> dict[ChannelId, int]:
+        """Instruction memory of the sequencers of the QRC channels.
+
+        A QRC has readout sequencers (with the QRM instruction memory) and control-only
+        ones (with a larger one), so the limit depends on the sequencer that each channel
+        is assigned to, which is the same one used to configure it.
+        """
+        limits: dict[ChannelId, int] = {}
+        for slot, chs in self._channels_by_module.items():
+            if not self._modules[slot].is_qrc_type:
+                continue
+            for ch, seq in assign_sequencers(chs).items():
+                limits[ch] = (
+                    QRC_CONTROL_INSTRUCTION_MEMORY
+                    if seq >= QRC_READOUT_SEQUENCERS
+                    else QRM_INSTRUCTION_MEMORY
+                )
+        return limits
 
     def reset(self) -> None:
         """Reset cluster parameters."""
@@ -267,7 +292,13 @@ class Cluster(Controller):
         )
 
         batched_seqs = _batch_sequences(
-            processed_sequences, sweepers_, options, qcm_channels, qrm_channels, configs
+            processed_sequences,
+            sweepers_,
+            options,
+            qcm_channels,
+            qrm_channels,
+            configs,
+            self._instruction_limits(),
         )
 
         # configure the modules

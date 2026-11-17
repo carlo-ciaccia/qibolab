@@ -544,3 +544,87 @@ def test_register_limited_batches_match_compiler(parameter, envelope, capacity):
     with pytest.raises(ValidationError) as error:
         compile(oversized, sweepers, options, sampling_rate=1.0, merged_vzs=False)
     assert error.value.errors()[0]["input"] == {"number": 64}
+
+
+def _drive(n: int, channel: str = "0/drive") -> list[tuple[str, Pulse]]:
+    return [
+        (channel, Pulse(duration=20, amplitude=0.1, envelope=Rectangular()))
+        for _ in range(n)
+    ]
+
+
+def _batch(sequences, qcm=(), qrm=(), channel_limits=None):
+    return batching._split_sequences_by_memory_limits(
+        sequences,
+        [],
+        ExecutionParameters(nshots=1, relaxation_time=100),
+        qcm_channels=set(qcm),
+        qrm_channels=set(qrm),
+        channel_limits=channel_limits,
+    )
+
+
+def test_multiplexed_channels_do_not_share_the_instruction_memory(monkeypatch):
+    """Each channel runs on its own sequencer, so the pulses are not summed."""
+    monkeypatch.setattr(batching, "per_shot_memory", lambda *_args, **_kwargs: 1)
+    channels = [f"{q}/drive" for q in range(6)]
+    # 6 x 2000 pulses is far above a single program memory, but each channel needs
+    # 3200 lines, a fraction of its own
+    sequence = PulseSequence([p for ch in channels for p in _drive(2000, ch)])
+
+    assert [len(b) for b in _batch([sequence], qcm=channels)] == [1]
+
+
+def test_batches_are_cut_when_any_channel_is_full(monkeypatch):
+    monkeypatch.setattr(batching, "per_shot_memory", lambda *_args, **_kwargs: 1)
+    # 4000 pulses are 6400 lines: two sequences fit in 16384 lines, three do not. The
+    # other channel is far from its own limit.
+    sequence = PulseSequence(_drive(4000, "0/drive") + _drive(10, "1/drive"))
+
+    batches = _batch([sequence] * 3, qcm=["0/drive", "1/drive"])
+
+    assert [len(b) for b in batches] == [2, 1]
+
+
+def test_single_sequence_over_a_channel_limit_names_the_channel(monkeypatch):
+    monkeypatch.setattr(batching, "per_shot_memory", lambda *_args, **_kwargs: 1)
+    # 11000 pulses are 17600 lines, above 16384
+    sequence = PulseSequence(_drive(11000, "0/drive") + _drive(10, "1/drive"))
+
+    with pytest.raises(ValueError, match=r"lines of 0/drive: requested=17,650"):
+        _batch([sequence], qcm=["0/drive", "1/drive"])
+
+
+def test_channel_limits_override_the_module_ones(monkeypatch):
+    """A QRC readout sequencer holds fewer instructions than a control one."""
+    monkeypatch.setattr(batching, "per_shot_memory", lambda *_args, **_kwargs: 1)
+    # 7000 pulses are 11200 lines: fine for 12288 once, but a second sequence is not
+    sequence = PulseSequence(_drive(7000, "0/drive"))
+    qrm = ["0/drive"]
+
+    assert [len(b) for b in _batch([sequence] * 2, qrm=qrm)] == [1, 1]
+    control = {"0/drive": 16384}
+    assert [
+        len(b) for b in _batch([sequence] * 2, qrm=qrm, channel_limits=control)
+    ] == [
+        1,
+        1,
+    ]
+    # 8000 pulses are 12800 lines: only the larger memory holds them
+    big = PulseSequence(_drive(8000, "0/drive"))
+    with pytest.raises(ValueError, match="lines of 0/drive"):
+        _batch([big], qrm=qrm)
+    assert [len(b) for b in _batch([big], qrm=qrm, channel_limits=control)] == [1]
+
+
+def test_acquisitions_are_limited_for_each_channel(monkeypatch):
+    monkeypatch.setattr(batching, "per_shot_memory", lambda *_args, **_kwargs: 1)
+    channels = ["0/acquisition", "1/acquisition"]
+    # 20 acquisitions each, 40 in total, but the limit of 32 is for each sequencer
+    sequence = PulseSequence(
+        [(ch, Acquisition(duration=8)) for ch in channels for _ in range(20)]
+    )
+
+    assert [len(b) for b in _batch([sequence], qrm=channels)] == [1]
+    # a second sequence in the same batch would take a channel to 40
+    assert [len(b) for b in _batch([sequence] * 2, qrm=channels)] == [1, 1]

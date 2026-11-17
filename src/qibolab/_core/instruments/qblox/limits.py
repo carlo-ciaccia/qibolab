@@ -64,6 +64,14 @@ can only drive outputs.
 """
 QRC_READOUT_SEQUENCERS = 8
 """Number of QRC sequencers with an acquisition path."""
+QRC_CONTROL_INSTRUCTION_MEMORY = 2**14
+"""Instruction memory of the control-only sequencers of a QRC (the last four).
+
+The readout ones, the first :data:`QRC_READOUT_SEQUENCERS`, have
+:data:`QRM_INSTRUCTION_MEMORY`. ``qblox-scheduler`` applies the latter to all of them.
+
+https://docs.qblox.com/en/main/products/architecture/sequencers/sequencer.html
+"""
 QRC_OUTPUTS = 6
 """Number of RF outputs of a QRC module."""
 QRC_READOUT_PORTS = frozenset({1, 2})

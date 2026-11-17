@@ -2,6 +2,7 @@
 
 import math
 from collections import Counter
+from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 
@@ -86,18 +87,30 @@ def _acq_memory(
     return int(min(per_shot * options.nshots, ACQUISITION_MEMORY))
 
 
+LINES_OFFSET = 50
+"""Number of lines of each program that is always there, whatever pulses are played.
+
+WARNING: this was determined empirically from the lines for QRM and QCM, so the
+individual numbers may be lower.
+"""
+LINES_PER_PULSE = 1.6
+"""Estimated number of lines of a program for each pulse played on its channel.
+
+The factor is determined heuristically, for large number of gates and iterations the
+ratio of ps objects to Lines is approx 1.56.
+
+WARNING: it was determined by combining QRM and QRC instructions, but the two types of
+instructions may have a different factor.
+"""
+
+
 def _init_batch() -> dict[str, int]:
-    """Helper function to initialise the batch tracking variables."""
-    return {
-        "acq_memory": 0,
-        "acq_number": 0,
-        # an offset number of lines that is always there regardless of the number of
-        # pulses played.
-        # WARNING: this was determined empirically from the lines for QRM and QCM, so
-        # the individual numbers may be lower.
-        "qcm_lines": 50,
-        "qrm_lines": 50,
-    }
+    """Helper function to initialise the batch tracking variables.
+
+    Only the quantities shared by the whole batch are here. The program lines and the
+    acquisitions are limited for each sequencer, hence tracked for each channel.
+    """
+    return {"acq_memory": 0}
 
 
 @dataclass
@@ -106,6 +119,10 @@ class _CurrentBatch:
 
     sequences: list[PulseSequence] = field(default_factory=list)
     memory: dict[str, int] = field(default_factory=_init_batch)
+    # program lines and number of acquisitions per channel: each channel runs its own
+    # program on its own sequencer, which is the one having the limits
+    lines: dict[ChannelId, int] = field(default_factory=dict)
+    acquisitions: dict[ChannelId, int] = field(default_factory=dict)
     # swept pulse IDs per channel, shared across the sequences of the batch
     swept_pulse_ids: dict[ChannelId, set[PulseId]] = field(default_factory=dict)
     # running maximum of the base registers per channel
@@ -115,6 +132,8 @@ class _CurrentBatch:
         """Reinitialize the batch to an empty one."""
         self.sequences = []
         self.memory = _init_batch()
+        self.lines = {}
+        self.acquisitions = {}
         self.swept_pulse_ids = {}
         self.base_registers = {}
 
@@ -122,6 +141,8 @@ class _CurrentBatch:
         self,
         ps: PulseSequence,
         ps_memory: dict[str, int],
+        ps_lines: dict[ChannelId, int],
+        ps_acquisitions: dict[ChannelId, int],
         ps_swept_pulse_ids: dict[ChannelId, set[PulseId]],
         base_registers: dict[ChannelId, int],
     ) -> None:
@@ -133,7 +154,43 @@ class _CurrentBatch:
             )
         for key, mem in ps_memory.items():
             self.memory[key] += mem
+        for ch, lines in ps_lines.items():
+            self.lines[ch] = self.lines.get(ch, 0) + lines
+        for ch, number in ps_acquisitions.items():
+            self.acquisitions[ch] = self.acquisitions.get(ch, 0) + number
         self.sequences.append(ps)
+
+
+def _instruction_limits(
+    qcm_channels: AbstractSet[ChannelId],
+    qrm_channels: AbstractSet[ChannelId],
+    channel_limits: Mapping[ChannelId, int] | None,
+) -> dict[ChannelId, int]:
+    """Instruction memory of the sequencer running each channel.
+
+    The module kind sets the default, and ``channel_limits`` overrides it for the
+    channels whose sequencer has a different one, e.g. the control sequencers of a QRC.
+    """
+    limits = {ch: cluster_memory_limits["qcm_lines"] for ch in qcm_channels}
+    limits |= {ch: cluster_memory_limits["qrm_lines"] for ch in qrm_channels}
+    limits |= channel_limits or {}
+    return limits
+
+
+def _lines_per_channel(
+    ps: PulseSequence, limits: Mapping[ChannelId, int]
+) -> dict[ChannelId, int]:
+    """Estimated program lines of each channel with a known instruction memory."""
+    return {
+        ch: math.ceil(LINES_PER_PULSE * len(pulses))
+        for ch, pulses in ps.by_channel.items()
+        if ch in limits
+    }
+
+
+def _acquisitions_per_channel(ps: PulseSequence) -> dict[ChannelId, int]:
+    """Number of acquisitions of each channel."""
+    return dict(Counter(ch for ch, _ in ps.acquisitions))
 
 
 def _swept_pulse_ids_per_channel(
@@ -195,28 +252,46 @@ def _raise_error_if_sequence_exceeds_registers(
             )
 
 
-def _raise_error_if_sequence_exceeds_memory_limits(ps_memory: dict[str, int]) -> None:
-    """Raise error if a single sequence exceeds the cluster memory limits."""
-    base_memory = _init_batch()
-    fits_in_memory = all(
-        base_memory[key] + ps_memory[key] <= limit
-        for key, limit in cluster_memory_limits.items()
-    )
-    if fits_in_memory:
+def _exceeded_limits(
+    memory: Mapping[str, int],
+    lines: Mapping[ChannelId, int],
+    acquisitions: Mapping[ChannelId, int],
+    limits: Mapping[ChannelId, int],
+) -> list[tuple[str, int, int]]:
+    """Limits exceeded by the given usage, as (name, requested, limit).
+
+    The usage is the one of a whole batch. The memory is shared by the cluster, while
+    the program lines and the acquisitions are limited for each channel, i.e. for the
+    sequencer running it.
+    """
+    exceeded = [
+        ("acq_memory", memory["acq_memory"], cluster_memory_limits["acq_memory"])
+    ]
+    exceeded += [
+        (f"lines of {ch}", LINES_OFFSET + number, limits[ch])
+        for ch, number in lines.items()
+    ]
+    exceeded += [
+        (f"acquisitions of {ch}", number, cluster_memory_limits["acq_number"])
+        for ch, number in acquisitions.items()
+    ]
+    return [(name, req, limit) for name, req, limit in exceeded if req > limit]
+
+
+def _raise_error_if_sequence_exceeds_memory_limits(
+    ps_memory: dict[str, int],
+    ps_lines: Mapping[ChannelId, int],
+    ps_acquisitions: Mapping[ChannelId, int],
+    limits: Mapping[ChannelId, int],
+) -> None:
+    """Raise error if a single sequence exceeds the memory limits."""
+    exceeded = _exceeded_limits(ps_memory, ps_lines, ps_acquisitions, limits)
+    if not exceeded:
         return
 
-    exceeded_limits = [
-        (
-            key,
-            cluster_memory_limits[key],
-            base_memory[key] + ps_memory[key],
-        )
-        for key in cluster_memory_limits
-        if base_memory[key] + ps_memory[key] > cluster_memory_limits[key]
-    ]
     details = "\n".join(
-        f"- {key}: requested={requested:,}, limit={limit:,}."
-        for key, limit, requested in exceeded_limits
+        f"- {name}: requested={requested:,}, limit={limit:,}."
+        for name, requested, limit in exceeded
     )
     raise ValueError(
         f"An individual sequence exceeds Qblox cluster memory limits:\n{details}"
@@ -257,8 +332,13 @@ def _split_sequences_by_memory_limits(
     options: ExecutionParameters,
     qcm_channels: set[ChannelId],
     qrm_channels: set[ChannelId],
+    channel_limits: Mapping[ChannelId, int] | None = None,
 ) -> list[list[PulseSequence]]:
     """Split sequences into batches that fit into the cluster memory.
+
+    Each channel runs its own program on its own sequencer, so the program lines and
+    the acquisitions are counted, and limited, for each channel. The instruction memory
+    of a channel is the one of its module kind, unless ``channel_limits`` sets it.
 
     Returns a list of batches, where each batch is a list of sequences.
     """
@@ -266,25 +346,15 @@ def _split_sequences_by_memory_limits(
     register_counts_per_channel = _channel_sweep_register_counts(sweepers)
     loop_register_count = len(sweepers)
     fixed_register_count = Registers.first_available() + loop_register_count
+    limits = _instruction_limits(qcm_channels, qrm_channels, channel_limits)
 
     batch = _CurrentBatch()
     batches: list[list[PulseSequence]] = []
     for ps in sequences:
-        ps_memory = {
-            "acq_memory": _acq_memory(ps, sweepers, options),
-            "acq_number": len(ps.acquisitions),
-            # The factor 1.6 is determined heuristically, for large number of gates
-            # and iterations the ratio of ps objects to Lines is approx 1.56
-            # WARNING: it was determined by combining QRM and QRC instructions, but the
-            # the two types of instructions may have a different factor.
-            # TODO: use the number of post-compilation lines
-            "qcm_lines": math.ceil(
-                sum(1.6 for channelid, _pulse in ps if channelid in qcm_channels)
-            ),
-            "qrm_lines": math.ceil(
-                sum(1.6 for channelid, _pulse in ps if channelid in qrm_channels)
-            ),
-        }
+        ps_memory = {"acq_memory": _acq_memory(ps, sweepers, options)}
+        # TODO: use the number of post-compilation lines
+        ps_lines = _lines_per_channel(ps, limits)
+        ps_acquisitions = _acquisitions_per_channel(ps)
         # Repeated pulse IDs share parameter registers within and across sequences.
         ps_swept_pulse_ids = _swept_pulse_ids_per_channel(
             ps, register_counts_per_pulse.keys(), register_counts_per_channel.keys()
@@ -294,17 +364,22 @@ def _split_sequences_by_memory_limits(
             for ch, pulse_ids in ps_swept_pulse_ids.items()
         }
 
-        _raise_error_if_sequence_exceeds_memory_limits(ps_memory)
+        _raise_error_if_sequence_exceeds_memory_limits(
+            ps_memory, ps_lines, ps_acquisitions, limits
+        )
         base_registers = _base_registers_per_channel(
             ps, fixed_register_count, register_counts_per_channel
         )
         _raise_error_if_sequence_exceeds_registers(ps_registers, base_registers)
 
-        # TODO: track instruction memory usage per module instead of summing across
-        # all modules.
-        fits_in_memory = all(
-            batch.memory[key] + ps_memory[key] <= limit
-            for key, limit in cluster_memory_limits.items()
+        fits_in_memory = not _exceeded_limits(
+            {key: batch.memory[key] + ps_memory[key] for key in ps_memory},
+            {ch: batch.lines.get(ch, 0) + n for ch, n in ps_lines.items()},
+            {
+                ch: batch.acquisitions.get(ch, 0) + n
+                for ch, n in ps_acquisitions.items()
+            },
+            limits,
         )
         fits_in_registers = _fits_in_registers(
             batch.base_registers,
@@ -317,7 +392,14 @@ def _split_sequences_by_memory_limits(
             batches.append(batch.sequences)
             batch.reset()
 
-        batch.add(ps, ps_memory, ps_swept_pulse_ids, base_registers)
+        batch.add(
+            ps,
+            ps_memory,
+            ps_lines,
+            ps_acquisitions,
+            ps_swept_pulse_ids,
+            base_registers,
+        )
 
     # If the the loop over sequences ended with a non-empty batch, add it to the
     # list of batches.
@@ -355,9 +437,10 @@ def batch_sequences_by_cluster_memory_limits(
     options: ExecutionParameters,
     qcm_channels: set[ChannelId],
     qrm_channels: set[ChannelId],
+    channel_limits: Mapping[ChannelId, int] | None = None,
 ) -> list[PulseSequence]:
     """Split sequences into batches that fit into the cluster memory."""
     batches = _split_sequences_by_memory_limits(
-        sequences, sweepers, options, qcm_channels, qrm_channels
+        sequences, sweepers, options, qcm_channels, qrm_channels, channel_limits
     )
     return _merge_batch_sequences(batches, options)

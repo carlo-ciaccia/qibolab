@@ -21,6 +21,10 @@ from qibolab._core.instruments.qblox.cluster import Cluster
 from qibolab._core.instruments.qblox.config.module import ModuleConfig
 from qibolab._core.instruments.qblox.config.port import PortAddress
 from qibolab._core.instruments.qblox.config.sequencer import SequencerConfig
+from qibolab._core.instruments.qblox.limits import (
+    QRC_CONTROL_INSTRUCTION_MEMORY,
+    QRM_INSTRUCTION_MEMORY,
+)
 from qibolab._core.instruments.qblox.platform import map_ports
 from qibolab._core.instruments.qblox.qrc import allowed_sequencers, assign_sequencers
 from qibolab._core.instruments.qblox.validate import validate_qrc_channels
@@ -534,3 +538,16 @@ def test_active_channels_include_the_acquisition_of_swept_probes():
     )
 
     assert active == {"q1/drive", "q0/acquisition"}
+
+
+def test_qrc_instruction_limits_follow_the_sequencer_of_each_channel():
+    """Readout sequencers have the QRM memory, control-only ones a larger one."""
+    cluster, _, _ = _readout_and_drive_cluster()
+
+    limits = Cluster._instruction_limits(cluster)
+
+    # the readout is on a sequencer with an acquisition path, the drive on o3 prefers a
+    # control-only one
+    assert limits["q0/acquisition"] == QRM_INSTRUCTION_MEMORY
+    assert limits["q1/drive"] == QRC_CONTROL_INSTRUCTION_MEMORY
+    assert QRC_CONTROL_INSTRUCTION_MEMORY > QRM_INSTRUCTION_MEMORY
