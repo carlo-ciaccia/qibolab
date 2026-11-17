@@ -53,6 +53,7 @@ import argparse
 import contextlib
 import os
 import sys
+import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -352,22 +353,151 @@ def sequencer_report(rows: list[dict]) -> None:
         )
 
 
-def plot(rows: list[dict], args, mode: str = "reset") -> Path:
-    qubits = sorted({r["qubit"] for r in rows})
+MODE_TEXT = {
+    "reset": "cluster reset before every measurement (as the driver does)",
+    "lo-enable": "cluster reset before every measurement, LO enable written",
+    "no-reset": "one reset at the start, none afterwards",
+    "no-reset-no-lo": "one reset at the start, module settings written only once",
+    "lo-relock": "one reset at the start, LO moved to 6 GHz and back before every measurement",
+}
+"""What the driver does between executes in each mode, for the titles of the figures."""
+
+
+def qubit_slots(platform, controller, qubits: list[str]) -> dict[str, int]:
+    """QRC slot where each qubit is read out."""
+    from qibolab._core.instruments.qblox.config import PortAddress
+
+    return {
+        q: PortAddress.from_path(
+            controller.channels[platform.qubits[q].acquisition].path
+        ).slot
+        for q in qubits
+    }
+
+
+def number(qubit: str) -> int:
+    return int(qubit[1:])
+
+
+def relative_phase(rows: list[dict], qubit: str) -> np.ndarray:
+    """Phase (deg) of the ground-state centroid of each execute, relative to the first."""
+    ground = np.array([r["ground"] for r in rows if r["qubit"] == qubit])
+    phase = np.degrees(np.angle(ground))
+    return (phase - phase[0] + 180) % 360 - 180
+
+
+def plot_iq(
+    rows: list[dict], mode: str, slot: int, qubits: list[str], info: dict, run_dir: Path
+) -> Path:
+    """IQ plane of the readout of the qubits of one QRC, one point per execute."""
+    columns = min(3, len(qubits))
+    lines = -(-len(qubits) // columns)
     fig, axes = plt.subplots(
-        1, len(qubits), figsize=(5 * len(qubits), 4.5), squeeze=False
+        lines, columns, figsize=(5.2 * columns, 4.8 * lines), squeeze=False
     )
-    for ax, q in zip(axes[0], qubits):
-        for r in (r for r in rows if r["qubit"] == q):
-            ax.plot(r["ground"].real, r["ground"].imag, "b.", alpha=0.6)
-            ax.plot(r["excited"].real, r["excited"].imag, "r.", alpha=0.6)
-        ax.set_title(f"{q} [{mode}]: ground (blue) and excited (red) centroids")
+    for ax, q in zip(axes.flat, qubits):
+        qrows = [r for r in rows if r["qubit"] == q]
+        ground = np.array([r["ground"] for r in qrows])
+        excited = np.array([r["excited"] for r in qrows])
+        ax.scatter(
+            ground.real, ground.imag, s=26, c="tab:blue", alpha=0.7, label="ground"
+        )
+        ax.scatter(
+            excited.real, excited.imag, s=26, c="tab:red", alpha=0.7, label="excited"
+        )
+        ax.axhline(0, color="gray", lw=0.6)
+        ax.axvline(0, color="gray", lw=0.6)
+        counts = {
+            f"{b + 0.0:+.0f}": int(n)
+            for b, n in zip(
+                *np.unique(
+                    np.round(relative_phase(rows, q) / 20) * 20, return_counts=True
+                )
+            )
+        }
+        ax.set_title(
+            f"{q}: phase of the ground state vs the first (deg): {counts}", fontsize=9
+        )
         ax.set_xlabel("I (a.u. per ns)")
         ax.set_ylabel("Q")
         ax.set_aspect("equal", adjustable="datalim")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8, loc="best")
+    for ax in list(axes.flat)[len(qubits) :]:
+        ax.set_visible(False)
+    fig.suptitle(
+        f"QRC in slot {slot}, readout LO 5.4 GHz, input attenuation {info['attenuation']} dB\n"
+        f"{MODE_TEXT[mode]}; {len(rows) // len({r['qubit'] for r in rows})} measurements, "
+        "one point per measurement (mean of the shots)",
+        fontsize=10,
+    )
     fig.tight_layout()
-    path = OUTPUT / f"cqt_readout_classification_check_{mode}.png"
-    fig.savefig(path, dpi=150)
+    path = run_dir / f"iq_slot{slot}_{mode}.png"
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+    print("Saved", path)
+    return path
+
+
+def plot_phase(
+    all_rows: dict[str, list[dict]], slots: dict[str, int], run_dir: Path
+) -> Path:
+    """Phase of each qubit against the measurement number, a row for each mode and a
+    column for each QRC: the figure that shows which mode changes the phase."""
+    modes = list(all_rows)
+    slot_list = sorted(set(slots.values()))
+    fig, axes = plt.subplots(
+        len(modes),
+        len(slot_list),
+        figsize=(6.5 * len(slot_list), 2.7 * len(modes) + 1.2),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
+    )
+    for i, mode in enumerate(modes):
+        for j, slot in enumerate(slot_list):
+            ax = axes[i][j]
+            for q in sorted((q for q in slots if slots[q] == slot), key=number):
+                ax.plot(
+                    relative_phase(all_rows[mode], q), "o-", ms=3.5, lw=0.8, label=q
+                )
+            ax.set_ylim(-190, 190)
+            ax.set_yticks([-180, -90, 0, 90, 180])
+            ax.grid(alpha=0.3)
+            ax.set_title(f"QRC slot {slot} - {mode}", fontsize=9)
+            if i == len(modes) - 1:
+                ax.set_xlabel(
+                    "measurement number (a new reset before each one in mode reset)"
+                )
+            if j == 0:
+                ax.set_ylabel("phase vs the first (deg)")
+            if i == 0:
+                ax.legend(fontsize=7, ncol=5, loc="upper right")
+    fig.suptitle(
+        "Phase of the readout ground state, same sequence and settings each time",
+        fontsize=11,
+    )
+    fig.tight_layout()
+    path = run_dir / "phase_vs_measurement.png"
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+    print("Saved", path)
+    return path
+
+
+def save_data(
+    all_rows: dict[str, list[dict]], slots: dict[str, int], run_dir: Path
+) -> Path:
+    """Centroids of every measurement, to draw the figures again."""
+    arrays = {}
+    for mode, rows in all_rows.items():
+        for q, slot in slots.items():
+            qrows = [r for r in rows if r["qubit"] == q]
+            arrays[f"{mode}/{q}/slot"] = np.array(slot)
+            arrays[f"{mode}/{q}/ground"] = np.array([r["ground"] for r in qrows])
+            arrays[f"{mode}/{q}/excited"] = np.array([r["excited"] for r in qrows])
+    path = run_dir / "centroids.npz"
+    np.savez(path, **arrays)
     print("Saved", path)
     return path
 
@@ -422,6 +552,11 @@ def main() -> None:
         print("Dry run only. Use --run to execute on the cluster.")
         return
 
+    slots = qubit_slots(platform, controller, args.qubits)
+    run_dir = OUTPUT / f"readout_phase_{time.strftime('%Y%m%d_%H%M%S')}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    print(f"figures and data in {run_dir}")
+    all_rows: dict[str, list[dict]] = {}
     platform.connect()
     try:
         for mode in args.modes:
@@ -443,9 +578,19 @@ def main() -> None:
             print(f"\nmode {mode}:")
             phase_summary(rows)
             sequencer_report(rows)
-            plot(rows, args, mode)
+            all_rows[mode] = rows
+            for slot in sorted(set(slots.values())):
+                in_slot = sorted((q for q in slots if slots[q] == slot), key=number)
+                attenuation = platform.parameters.configs[
+                    platform.qubits[in_slot[0]].acquisition
+                ].attenuation
+                plot_iq(
+                    rows, mode, slot, in_slot, {"attenuation": attenuation}, run_dir
+                )
     finally:
         platform.disconnect()
+    plot_phase(all_rows, slots, run_dir)
+    save_data(all_rows, slots, run_dir)
 
 
 if __name__ == "__main__":
