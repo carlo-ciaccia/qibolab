@@ -35,6 +35,13 @@ order, and the driver is restored after each)::
     no-reset         the cluster is reset once, before the first execute, then only the
                      settings, LOs included, are rewritten
     no-reset-no-lo   reset once, and the module settings are written only the first time
+    lo-relock        reset once, then before the settings of every execute each QRC LO
+                     is set to 6 GHz and back (the driver then writes the 5.4 GHz), to see
+                     whether re-programming the LO alone sets the phase
+
+The patches act on every QRC module of the cluster, so reading the qubits of both QRCs
+together (q1 q2 q3 q4 q5 q6 q7 q9 q10, ``--multiplexed``) covers both modules in one run;
+the phase summary is printed for each qubit.
 
 If the phase stays fixed in a mode and not in ``reset``, what that mode skips is the
 trigger. Each mode ends with the number of executes in each phase, compared with the
@@ -81,7 +88,11 @@ def sequences(platform, qubits: list[str], multiplexed: bool):
     return plans
 
 
-MODES = ("reset", "lo-enable", "no-reset", "no-reset-no-lo")
+MODES = ("reset", "lo-enable", "no-reset", "no-reset-no-lo", "lo-relock")
+
+LO_PARK = 6e9
+"""Frequency, in Hz, to which the LOs are moved before being set back, as the QRC LOs are
+after a cluster reset (a multiple of 100 MHz within the range of the module)."""
 
 
 @contextlib.contextmanager
@@ -91,7 +102,7 @@ def driver_mode(mode: str):
     from qibolab._core.instruments.qblox.config.module import ModuleConfig
 
     reset, apply = Cluster.reset, ModuleConfig.apply
-    state = {"reset": False, "modules": set(), "enabled": set()}
+    state = {"reset": False, "modules": set(), "enabled": set(), "relocked": []}
 
     def reset_once(self) -> None:
         # the cluster is reset by the first execute only, but the sequencer settings
@@ -116,12 +127,22 @@ def driver_mode(mode: str):
                     state["enabled"].add(name)
         apply(self, mod, disconnect)
 
-    if mode in ("no-reset", "no-reset-no-lo"):
+    def apply_lo_relock(self, mod, disconnect: bool = True) -> None:
+        if mod.is_qrc_type:
+            for key in self.ports:
+                if key.endswith("_lo_freq"):
+                    mod.parameters[key].set(LO_PARK)
+                    state["relocked"].append(key)
+        apply(self, mod, disconnect)
+
+    if mode in ("no-reset", "no-reset-no-lo", "lo-relock"):
         Cluster.reset = reset_once
     if mode == "no-reset-no-lo":
         ModuleConfig.apply = apply_once
     if mode == "lo-enable":
         ModuleConfig.apply = apply_lo_enable
+    if mode == "lo-relock":
+        ModuleConfig.apply = apply_lo_relock
     try:
         yield state
     finally:
@@ -413,6 +434,10 @@ def main() -> None:
             if mode == "lo-enable":
                 # without any, the mode did nothing different from reset
                 print(f"LO enables written: {sorted(state['enabled']) or 'NONE'}")
+            if mode == "lo-relock":
+                # without any, the mode did nothing different from no-reset
+                keys = sorted(set(state["relocked"]))
+                print(f"LO moves to 6 GHz and back: {len(state['relocked'])} ({keys})")
             if not args.quiet:
                 report(rows)
             print(f"\nmode {mode}:")
