@@ -8,6 +8,7 @@ from typing import cast
 
 import qblox_instruments as qblox
 import scipy.constants
+from pydantic import Field
 from qblox_instruments.qcodes_drivers.module import Module
 from qcodes.instrument import find_or_create_instrument
 
@@ -26,7 +27,7 @@ from qibolab._core.execution_parameters import (
 )
 from qibolab._core.identifier import ChannelId, Result
 from qibolab._core.instruments.abstract import Controller
-from qibolab._core.pulses.pulse import PulseId, Readout
+from qibolab._core.pulses.pulse import Delay, PulseId, Readout
 from qibolab._core.sequence import PulseSequence
 from qibolab._core.serialize import Model
 from qibolab._core.sweeper import ParallelSweepers, Parameter, normalize_sweepers
@@ -36,7 +37,11 @@ from .batching import batch_sequences_by_cluster_memory_limits
 from .config import PortAddress
 from .identifiers import SequencerMap, SlotId
 from .limits import (
+    FILTER_DELAY_COMPENSATION,
+    LATENCY_GRID,
+    OUTPUT_PATH_LATENCY,
     QRC_CONTROL_INSTRUCTION_MEMORY,
+    QRC_OUTPUT_PATH_LATENCY,
     QRC_READOUT_SEQUENCERS,
     QRC_SEQUENCERS,
     QRM_INSTRUCTION_MEMORY,
@@ -98,6 +103,35 @@ def _add_time_of_flight(sequence: PulseSequence, configs: Configs) -> PulseSeque
     )
 
 
+def _align_latencies(
+    sequence: PulseSequence, latencies: dict[ChannelId, float] | None
+) -> PulseSequence:
+    """Delay the channels of a sequence, so that their signals reach the outputs together.
+
+    ``latencies`` is the time, in ns, that the signal of each channel takes to reach the
+    output. The channels with a lower latency start later, by the difference with the
+    slowest one among those of the sequence, on the grid of :data:`LATENCY_GRID`. The
+    delays are inserted at the beginning, so a sequence which only has channels of the
+    same latency is not changed.
+
+    A readout is one block of the acquisition channel, whose probe and acquisition are
+    played by the same sequencer, so delaying the channel delays both and keeps the time
+    of flight.
+    """
+    if not latencies:
+        return sequence
+    used = {ch: latencies[ch] for ch in sequence.channels if ch in latencies}
+    if not used:
+        return sequence
+    slowest = max(used.values())
+    delays = {
+        ch: round((slowest - latency) / LATENCY_GRID) * LATENCY_GRID
+        for ch, latency in sorted(used.items())
+    }
+    shifts = [(ch, Delay(duration=delay)) for ch, delay in delays.items() if delay > 0]
+    return PulseSequence([*shifts, *sequence]) if shifts else sequence
+
+
 def _batch_sequences(
     sequences: list[PulseSequence],
     sweepers: list[ParallelSweepers],
@@ -106,6 +140,7 @@ def _batch_sequences(
     qrm_channels: set[ChannelId],
     configs: Configs,
     channel_limits: dict[ChannelId, int] | None = None,
+    latencies: dict[ChannelId, float] | None = None,
 ) -> list[PulseSequence]:
     batched_seqs = (
         batch_sequences_by_cluster_memory_limits(
@@ -114,7 +149,10 @@ def _batch_sequences(
         if options.acquisition_type is not AcquisitionType.RAW
         else sequences
     )
-    return [_add_time_of_flight(b, configs).align_to_delays() for b in batched_seqs]
+    return [
+        _align_latencies(_add_time_of_flight(b, configs), latencies).align_to_delays()
+        for b in batched_seqs
+    ]
 
 
 def _merge_phases_if_no_phase_sweeper(
@@ -151,6 +189,26 @@ class Cluster(Controller):
 
     As described in:
     https://docs.qblox.com/en/main/getting_started/setup.html#connecting-to-multiple-instruments
+    """
+    align_module_latencies: bool = True
+    """Align the signals of the channels of modules with a different output latency.
+
+    The signal of a QRC takes 170 ns to leave the module, the one of the other modules
+    (QCM, QCM-RF, QRM-RF) 110 ns, plus 340 ns of delay compensation on every output
+    but the QRC ones (cf. :data:`.limits.FILTER_DELAY_COMPENSATION`). Without alignment, a
+    pulse played at the same time on a QRC and a QCM leaves the QCM later than the QRC.
+    With it, the channels that are faster start later, by the difference, so the
+    pulses reach the outputs at the same time. Only the channels of a sequence are
+    considered: a sequence whose channels are all of the same kind is not changed.
+    """
+    channel_delays: dict[ChannelId, float] = Field(default_factory=dict)
+    """Extra latency, in ns, of the signal of single channels, e.g. due to cables.
+
+    A positive value means that the signal arrives later than the ones of the other
+    channels, which then start later to compensate it, and a negative one that it arrives
+    earlier. It is added to the latency of the module, and rounded to the grid of 4 ns after
+    adding it to the one of the other channels. It is also used with
+    ``align_module_latencies=False``, to correct only the delays that are measured.
     """
     _cluster: qblox.Cluster | None = None
     _applied_seqcfgs: dict[SlotId, dict[int, config.SequencerConfig]] | None = None
@@ -193,6 +251,25 @@ class Cluster(Controller):
                     else QRM_INSTRUCTION_MEMORY
                 )
         return limits
+
+    def _channel_latencies(self) -> dict[ChannelId, float]:
+        """Time, in ns, that the signal of each channel takes to reach its output."""
+        unknown = set(self.channel_delays) - set(self.channels)
+        if unknown:
+            raise ValueError(
+                f"Delays given for channels that are not in the cluster: {sorted(unknown)}"
+            )
+        latencies: dict[ChannelId, float] = {}
+        for slot, chs in self._channels_by_module.items():
+            if not self.align_module_latencies:
+                path = 0.0
+            elif self._modules[slot].is_qrc_type:
+                path = QRC_OUTPUT_PATH_LATENCY
+            else:
+                path = OUTPUT_PATH_LATENCY + FILTER_DELAY_COMPENSATION
+            for ch, _ in chs:
+                latencies[ch] = path + self.channel_delays.get(ch, 0.0)
+        return latencies
 
     def reset(self) -> None:
         """Reset cluster parameters."""
@@ -299,6 +376,7 @@ class Cluster(Controller):
             qrm_channels,
             configs,
             self._instruction_limits(),
+            self._channel_latencies(),
         )
 
         # configure the modules

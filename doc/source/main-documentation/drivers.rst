@@ -52,6 +52,26 @@ The following are not supported yet:
 Port numbers in qibolab are 1-based (``io1``), while the corresponding Qblox hardware
 parameters are 0-based (``out0_in0``).
 
+**Alignment of channels of different modules.** The signal of a channel takes some time to
+leave its module: 110 ns for the QCM, QCM-RF and QRM-RF, 170 ns for the QRC. On top of
+that, the driver enables the delay compensation of the real-time predistortion filters on
+every output but the QRC ones, which delays them by 340 ns (``module.out{n}_latency()``)
+whatever filters are used, so that the latency does not depend on them. A pulse played at
+the same time on a QRC channel and on a QCM channel thus leaves the QCM 280 ns after the
+QRC. The :class:`qibolab._core.instruments.qblox.cluster.Cluster` removes this by
+delaying, at the beginning of each sequence, the channels that are faster, by the difference
+with the slowest channel of the sequence, on a grid of 4 ns (``align_module_latencies``,
+enabled by default). The readout, with its probe and acquisition, is one block of its
+channel, so it is delayed as a whole and its time of flight does not change. Sequences whose
+channels are all in modules of the same kind are not modified.
+
+The latency of single channels, e.g. because of cables, can be added in ns with
+``channel_delays`` (``{"q2/flux": -20.0}``): a positive value means that the signal arrives
+later than the others, which start later to compensate it. It also works with
+``align_module_latencies=False``. The script ``scripts/cqt_qpu/validation/flux_timing_check.py``
+measures the delay between a flux pulse and a drive pulse on a qubit, with and without the
+alignment, and prints the value to use.
+
 Other Instruments (subclasses of :class:`qibolab._core.instruments.abstract.Instrument`):
     - Erasynth++: :class:`qibolab.instruments.era.ERASynth`
     - RohseSchwarz SGS100A: :class:`qibolab.instruments.rohde_schwarz.SGS100A`

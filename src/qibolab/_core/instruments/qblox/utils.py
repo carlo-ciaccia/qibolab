@@ -11,7 +11,7 @@ from qibolab._core.pulses import Acquisition, Readout
 from qibolab._core.sequence import PulseSequence
 from qibolab._core.sweeper import ParallelSweepers
 
-from .limits import ACQUISITION_MEMORY
+from .limits import ACQUISITION_MEMORY, FILTER_DELAY_COMPENSATION
 
 
 def per_shot_memory(
@@ -89,7 +89,7 @@ def time_of_flights(configs: Configs) -> dict[ChannelId, float]:
     https://docs.qblox.com/en/v0.17.1/cluster/real_time_predistortions.html#bypasses-and-delays
     """
     return {
-        ch: max(config.delay, 4.0) + 340
+        ch: max(config.delay, 4.0) + FILTER_DELAY_COMPENSATION
         for ch, config in configs.items()
         if isinstance(config, AcquisitionConfig)
     }

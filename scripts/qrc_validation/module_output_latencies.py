@@ -10,8 +10,10 @@ qubit at the same time, i.e. the QCM output path is slower than the QRC one. Qbl
 output path of 110 ns for QCM, QCM-RF and QRM-RF, and 170 ns for the QRC. The Qibolab driver
 also enables the delay compensation of the pre-distortion filters on every non-QRC output
 (the filters are off, but the output is delayed as if they were on), which is assumed to
-cost about 340 ns. This script reads ``module.out{n}_latency()`` for each output in four
-states, to check these numbers:
+cost about 340 ns. This script reads ``module.out{n}_latency()`` (reported in seconds, printed
+here in ns) for each output in four states, to check these numbers. On the cluster at 192.168.0.80
+the parameter was 0 for the bypassed filters and 340 ns for delay_comp and enabled, on the QCM
+and the QRC alike, so it reports the latency of the filters only, not the output path:
 
     reset      right after ``cluster.reset()``
     bypassed   all the filters of the output set to "bypassed"
@@ -19,10 +21,10 @@ states, to check these numbers:
     enabled    all the filters set to "enabled"
 
 A state the module does not accept (the QRC filters only take "bypassed" and "delay_comp")
-is printed as n/a. If the model is right, ``bypassed`` is the output path (about 110 ns for a QCM or QCM-RF,
-170 ns for a QRC), and ``delay_comp`` and ``enabled`` are that plus the latency of all the
-filters. The cluster is reset first and at the end, so use it when nobody else is on it. No
-sequence is played, and no output is enabled.
+is printed as n/a. The output path itself (about 110 ns for a QCM, QCM-RF or QRM-RF, 170 ns
+for a QRC, from the Qblox documentation) is not part of this parameter, so it adds to the
+numbers printed here. The cluster is reset first and at the end, so use it when nobody else
+is on it. No sequence is played, and no output is enabled.
 """
 
 import argparse
@@ -57,7 +59,8 @@ def set_filters(module, n: int, state: str) -> None:
 
 def read(module, n: int) -> float | str:
     try:
-        return module.parameters[f"out{n}_latency"]()
+        # the cluster reports seconds
+        return round(module.parameters[f"out{n}_latency"]() * 1e9, 1)
     except Exception as error:  # noqa: BLE001 - report what the module refuses
         return f"error: {error}"[:30]
 

@@ -109,6 +109,26 @@ and is checked by the hardware driver.
 https://docs.qblox.com/en/main/products/architecture/modules/qrc.html
 """
 
+OUTPUT_PATH_LATENCY = 110.0
+"""Latency, in ns, of the output path of the QCM, QCM-RF and QRM-RF modules.
+
+https://docs.qblox.com/en/main/products/architecture/sequencers/linq_based_feedback.html
+"""
+QRC_OUTPUT_PATH_LATENCY = 170.0
+"""Latency, in ns, of the output path of the QRC modules (cf. :data:`OUTPUT_PATH_LATENCY`)."""
+FILTER_DELAY_COMPENSATION = 340.0
+"""Latency, in ns, that all the real-time predistortion filters of an output add.
+
+The driver enables the delay compensation of the outputs of all the modules but the QRC,
+which delays them by this amount, whichever filters are used, so that the latency does not
+depend on them. On the cluster, ``module.out{n}_latency()`` reports it for the QCM outputs,
+and for the QRC ones too when their delay compensation is enabled.
+
+https://docs.qblox.com/en/main/products/qblox_instruments/tutorials/real_time_predistortions.html
+"""
+LATENCY_GRID = 4.0
+"""Resolution, in ns, of the delays inserted to align the channels."""
+
 SEQUENCER_REGISTERS = 64
 """Number of registers available in the Q1 sequencer.
 
