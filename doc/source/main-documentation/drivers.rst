@@ -53,24 +53,47 @@ Port numbers in qibolab are 1-based (``io1``), while the corresponding Qblox har
 parameters are 0-based (``out0_in0``).
 
 **Alignment of channels of different modules.** The signal of a channel takes some time to
-leave its module: 110 ns for the QCM, QCM-RF and QRM-RF, 170 ns for the QRC. On top of
-that, the driver enables the delay compensation of the real-time predistortion filters on
-every output but the QRC ones, which delays them by 340 ns (``module.out{n}_latency()``)
-whatever filters are used, so that the latency does not depend on them. A pulse played at
-the same time on a QRC channel and on a QCM channel thus leaves the QCM 280 ns after the
-QRC. The :class:`qibolab._core.instruments.qblox.cluster.Cluster` removes this by
-delaying, at the beginning of each sequence, the channels that are faster, by the difference
-with the slowest channel of the sequence, on a grid of 4 ns (``align_module_latencies``,
-enabled by default). The readout, with its probe and acquisition, is one block of its
-channel, so it is delayed as a whole and its time of flight does not change. Sequences whose
-channels are all in modules of the same kind are not modified.
+leave its module: 110 ns for the QCM, QCM-RF and QRM-RF, 170 ns for the QRC (Qblox
+documentation, `LINQ-based feedback
+<https://docs.qblox.com/en/main/products/architecture/sequencers/linq_based_feedback.html>`_).
+On top of that, the driver enables the delay compensation of the real-time predistortion
+filters on every output but the QRC ones, which delays them by 340 ns whatever filters are
+used, so that the latency does not depend on them (``module.out{n}_latency()`` reports 340 ns
+for the QCM outputs, with all the filters in ``delay_comp`` or ``enabled``). A pulse played at
+the same time on a QRC channel and on a QCM channel thus leaves the QCM 280 ns after the QRC.
 
-The latency of single channels, e.g. because of cables, can be added in ns with
-``channel_delays`` (``{"q2/flux": -20.0}``): a positive value means that the signal arrives
-later than the others, which start later to compensate it. It also works with
-``align_module_latencies=False``. The script ``scripts/cqt_qpu/validation/flux_timing_check.py``
-measures the delay between a flux pulse and a drive pulse on a qubit, with and without the
-alignment, and prints the value to use.
+The :class:`qibolab._core.instruments.qblox.cluster.Cluster` removes this by delaying, at the
+beginning of each sequence, the channels that are faster, by the difference with the slowest
+channel of the sequence, on a grid of 4 ns. The readout, with its probe and acquisition, is
+one block of its channel, so it is delayed as a whole and its time of flight does not change.
+Sequences whose channels are all in modules of the same kind are not modified.
+
+The options are fields of the ``Cluster``, set when creating it in ``platform.py`` (they are
+not in ``parameters.json``):
+
+- ``align_module_latencies`` (default ``True``) is a switch for the whole cluster. ``False``
+  restores the previous timing.
+- ``channel_delays`` is a dictionary with the extra latency, in ns, of single channels, e.g.
+  because of cables: ``{"q2/flux": -20.0}``. A positive value means that the signal arrives
+  later than the others, which start later to compensate it. It also works with
+  ``align_module_latencies=False``.
+
+.. warning::
+
+    The alignment is enabled by default, so the QRC channels of a platform that mixes QRC and
+    QCM modules start 280 ns later than before. A delay that was added by hand to compensate
+    the offset has to be removed, or it is compensated twice.
+
+The 340 ns was read on the cluster for all the QCM and QRC outputs, with all the filters in the
+same state (a mix of enabled and delay-compensated filters was not read, but the compensation
+is meant to give the same total). The output paths of 110 ns and 170 ns come from the Qblox
+documentation. The alignment was checked on one qubit, with a flux pulse on a QCM scanned
+against a drive pulse on a QRC: the window where they overlap moved from -300 ns to -20 ns,
+a shift of 280 ns, against -25 ns expected. The scripts
+``scripts/cqt_qpu/validation/flux_timing_check.py`` (that measurement, which also prints the
+value of ``channel_delays`` to remove what is left, from cables and analog paths) and
+``scripts/qrc_validation/module_output_latencies.py`` (the latency of the filters of every
+output) repeat them.
 
 Other Instruments (subclasses of :class:`qibolab._core.instruments.abstract.Instrument`):
     - Erasynth++: :class:`qibolab.instruments.era.ERASynth`

@@ -193,22 +193,34 @@ class Cluster(Controller):
     align_module_latencies: bool = True
     """Align the signals of the channels of modules with a different output latency.
 
+    It is a switch of the whole cluster (all the modules and channels), set when creating
+    it, e.g. in ``platform.py``, and not part of the platform parameters.
+
     The signal of a QRC takes 170 ns to leave the module, the one of the other modules
     (QCM, QCM-RF, QRM-RF) 110 ns, plus 340 ns of delay compensation on every output
     but the QRC ones (cf. :data:`.limits.FILTER_DELAY_COMPENSATION`). Without alignment, a
-    pulse played at the same time on a QRC and a QCM leaves the QCM later than the QRC.
-    With it, the channels that are faster start later, by the difference, so the
+    pulse played at the same time on a QRC and a QCM leaves the QCM later than the QRC,
+    by 280 ns. With it, the channels that are faster start later, by the difference, so the
     pulses reach the outputs at the same time. Only the channels of a sequence are
     considered: a sequence whose channels are all of the same kind is not changed.
+
+    .. warning::
+
+        It is enabled by default, so the QRC channels of a platform that mixes QRC and
+        QCM modules start 280 ns later than before. A delay that was added by hand to
+        compensate this offset has to be removed, or it is compensated twice. ``False``
+        restores the previous timing.
     """
     channel_delays: dict[ChannelId, float] = Field(default_factory=dict)
     """Extra latency, in ns, of the signal of single channels, e.g. due to cables.
 
-    A positive value means that the signal arrives later than the ones of the other
-    channels, which then start later to compensate it, and a negative one that it arrives
-    earlier. It is added to the latency of the module, and rounded to the grid of 4 ns after
-    adding it to the one of the other channels. It is also used with
-    ``align_module_latencies=False``, to correct only the delays that are measured.
+    The keys are channel ids (e.g. ``"q2/flux"``), so it is set for each channel, while
+    ``align_module_latencies`` is a switch of the whole cluster. A positive value means
+    that the signal arrives later than the ones of the other channels, which then start
+    later to compensate it, and a negative one that it arrives earlier. It is added to the
+    latency of the module, and rounded to the grid of 4 ns after adding it to the one of the
+    other channels. It is also used with ``align_module_latencies=False``, to correct only
+    the delays that are measured. Channels that are not in the cluster are rejected.
     """
     _cluster: qblox.Cluster | None = None
     _applied_seqcfgs: dict[SlotId, dict[int, config.SequencerConfig]] | None = None
