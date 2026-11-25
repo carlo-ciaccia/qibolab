@@ -21,6 +21,13 @@ It prints, for each qubit, the time of flight and the ``delay`` to write in the
 compensation, on the grid of 4 ns), and the value shared by the qubits that are read
 out together (the largest one). Nothing is written to the platform.
 
+The Scheduler demo measures it with the output attenuation of the readout at 6-10 dB, the input
+attenuation at 30-35 dB (the Garnet hardware config), a probe of amplitude 0.7 and a detuning
+of 50 MHz, while the platform has 0 dB on both and a probe of 0.09: an input without
+attenuation is saturated by the noise of the line, and only noise is seen. Use
+``--input-attenuation``, ``--output-attenuation`` and ``--amplitude`` to measure the way the
+demo does (only for the measurement, nothing is written to the platform).
+
 The probe is the one of the MZ gate (use ``--amplitude`` to lower it, the readout line must
 not saturate), and the readout frequency of the platform is moved by ``--detuning`` only
 for the measurement. The NCO propagation delay compensation that the Scheduler also sets
@@ -43,7 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from common import OUTPUT_DIR, PLATFORMS
 
 PLATFORM = "CQT_QPU"
-DETUNING = 20e6  # Hz
+DETUNING = 50e6  # Hz, as in the Qblox Scheduler demo
 NSHOTS = 1024
 GRID_NS = 4
 OUTPUT = OUTPUT_DIR / "cqt_time_of_flight.png"
@@ -91,6 +98,14 @@ def main() -> None:
         "--profile", type=int, default=2000, help="ns of the printed profile"
     )
     parser.add_argument("--nshots", type=int, default=NSHOTS)
+    parser.add_argument(
+        "--input-attenuation", type=float, help="dB of the QRC input, default: platform"
+    )
+    parser.add_argument(
+        "--output-attenuation",
+        type=float,
+        help="dB of the QRC output of the probe, default: platform",
+    )
     args = parser.parse_args()
 
     os.environ.setdefault("QIBOLAB_PLATFORMS", str(PLATFORMS))
@@ -132,7 +147,17 @@ def main() -> None:
             configs[probe] = original[0].model_copy(
                 update={"frequency": original[0].frequency - args.detuning}
             )
-            configs[acquisition] = original[1].model_copy(update={"delay": 0.0})
+            acq_update = {"delay": 0.0}
+            if args.input_attenuation is not None:
+                acq_update["attenuation"] = args.input_attenuation
+            configs[acquisition] = original[1].model_copy(update=acq_update)
+            lo = platform.channels[probe].lo
+            original_lo = configs[lo]
+            if args.output_attenuation is not None:
+                # the attenuation of the output follows the power of the LO: -power
+                configs[lo] = original_lo.model_copy(
+                    update={"power": -args.output_attenuation}
+                )
             # the start of the trace is the one of the delay of this measurement (0)
             start = time_of_flights({acquisition: configs[acquisition]}, uncompensated)[
                 acquisition
@@ -146,6 +171,7 @@ def main() -> None:
                 )
             finally:
                 configs[probe], configs[acquisition] = original
+                configs[lo] = original_lo
             iq = np.asarray(res[readout.acquisition.id], dtype=float).reshape(-1, 2)
             z = iq[:, 0] + 1j * iq[:, 1]
             compensation = (
