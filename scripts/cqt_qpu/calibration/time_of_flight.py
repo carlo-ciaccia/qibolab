@@ -73,6 +73,9 @@ def main() -> None:
     parser.add_argument(
         "--amplitude", type=float, help="override the MZ probe amplitude"
     )
+    parser.add_argument(
+        "--profile", type=int, default=2000, help="ns of the printed profile"
+    )
     args = parser.parse_args()
 
     os.environ.setdefault("QIBOLAB_PLATFORMS", str(PLATFORMS))
@@ -133,6 +136,11 @@ def main() -> None:
                 f"{magnitude[peak]:.2e} at sample {peak} | arrival sample {sample}"
             )
             np.save(OUTPUT_DIR / f"cqt_time_of_flight_{name}.npy", z)
+            binned = magnitude[: args.profile // 50 * 50].reshape(-1, 50).mean(axis=1)
+            print(
+                f"{name}: mean |signal| per 50 ns from the start of the trace: "
+                + " ".join(f"{b:.2f}" for b in binned)
+            )
             results[name] = (start, compensation, sample, magnitude)
     finally:
         platform.disconnect()
