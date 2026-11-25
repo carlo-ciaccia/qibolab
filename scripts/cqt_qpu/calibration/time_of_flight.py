@@ -42,7 +42,16 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from qibolab import AcquisitionType, AveragingMode, create_platform
+from qibolab import (
+    Acquisition,
+    AcquisitionType,
+    AveragingMode,
+    Pulse,
+    PulseSequence,
+    Readout,
+    Rectangular,
+    create_platform,
+)
 from qibolab._core.instruments.qblox.limits import FILTER_DELAY_COMPENSATION
 from qibolab._core.instruments.qblox.utils import time_of_flights
 
@@ -60,6 +69,27 @@ SMOOTH_NS = 8
 SUSTAINED_NS = 24
 TAIL_NS = 4096
 SIGMAS = 6
+
+
+LOOPBACK_PROBE_NS = 1000
+LOOPBACK_AMPLITUDE = 0.2
+
+
+def readout_sequence(platform, name: str) -> PulseSequence:
+    """The MZ gate of the qubit, or a flat probe if the platform has no native gates."""
+    natives = platform.natives.single_qubit.get(name)
+    if natives is not None and natives.MZ is not None:
+        return natives.MZ.create_sequence()
+    readout = Readout(
+        probe=Pulse(
+            duration=LOOPBACK_PROBE_NS,
+            amplitude=LOOPBACK_AMPLITUDE,
+            relative_phase=0.0,
+            envelope=Rectangular(),
+        ),
+        acquisition=Acquisition(duration=LOOPBACK_PROBE_NS),
+    )
+    return PulseSequence([(platform.qubits[name].acquisition, readout)])
 
 
 def arrival(trace: np.ndarray) -> tuple[int | None, np.ndarray]:
@@ -99,6 +129,11 @@ def main() -> None:
     )
     parser.add_argument("--nshots", type=int, default=NSHOTS)
     parser.add_argument(
+        "--platform",
+        default=PLATFORM,
+        help="e.g. qblox_qrc_loopback (QRC_SLOT, QRC_CLUSTER_IP), with a flat probe",
+    )
+    parser.add_argument(
         "--input-attenuation", type=float, help="dB of the QRC input, default: platform"
     )
     parser.add_argument(
@@ -109,11 +144,16 @@ def main() -> None:
     args = parser.parse_args()
 
     os.environ.setdefault("QIBOLAB_PLATFORMS", str(PLATFORMS))
-    platform = create_platform(PLATFORM)
+    platform = create_platform(args.platform)
     controller = platform.instruments["cluster0"]
+    channels = platform.channels
     qubits = args.qubits or [
-        q for q, gates in platform.natives.single_qubit.items() if gates.MZ is not None
+        q
+        for q in platform.qubits
+        if q not in platform.natives.single_qubit
+        or platform.natives.single_qubit[q].MZ is not None
     ]
+    qubits = [q for q in qubits if platform.qubits[q].acquisition in channels]
     print(
         f"cluster {controller.address} | qubits {qubits} | detuning {args.detuning / 1e6:g} MHz"
     )
@@ -128,7 +168,7 @@ def main() -> None:
         configs = platform.parameters.configs
         for name in qubits:
             qubit = platform.qubits[name]
-            sequence = platform.natives.single_qubit[name].MZ.create_sequence()
+            sequence = readout_sequence(platform, name)
             readout = next(e for _, e in sequence if hasattr(e, "probe"))
             if args.amplitude is not None:
                 louder = readout.model_copy(
@@ -166,6 +206,7 @@ def main() -> None:
                 res = platform.execute(
                     [sequence],
                     nshots=args.nshots,
+                    relaxation_time=max(platform.settings.relaxation_time, 100_000),
                     acquisition_type=AcquisitionType.RAW,
                     averaging_mode=AveragingMode.CYCLIC,
                 )
