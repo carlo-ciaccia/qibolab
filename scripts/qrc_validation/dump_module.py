@@ -79,8 +79,7 @@ def show(pattern: str, path: Path) -> None:
     matching = {k: v for k, v in values.items() if re.search(pattern, k)}
     for key, value in matching.items():
         print(f"{key:<60} {str(value)[:40]}")
-    print(f"
-{len(matching)} of {len(values)} parameters match")
+    print(f"\n{len(matching)} of {len(values)} parameters match")
 
 
 def main() -> None:
