@@ -107,6 +107,10 @@ def main() -> None:
                 update={"frequency": original[0].frequency - args.detuning}
             )
             configs[acquisition] = original[1].model_copy(update={"delay": 0.0})
+            # the start of the trace is the one of the delay of this measurement (0)
+            start = time_of_flights({acquisition: configs[acquisition]}, uncompensated)[
+                acquisition
+            ]
             try:
                 res = platform.execute(
                     [sequence],
@@ -117,13 +121,18 @@ def main() -> None:
             finally:
                 configs[probe], configs[acquisition] = original
             iq = np.asarray(res[readout.acquisition.id], dtype=float).reshape(-1, 2)
-            start = time_of_flights({acquisition: configs[acquisition]}, uncompensated)[
-                acquisition
-            ]
+            z = iq[:, 0] + 1j * iq[:, 1]
             compensation = (
                 0.0 if acquisition in uncompensated else FILTER_DELAY_COMPENSATION
             )
-            sample, magnitude = arrival(iq[:, 0] + 1j * iq[:, 1])
+            sample, magnitude = arrival(z)
+            peak = int(np.argmax(magnitude))
+            print(
+                f"{name}: {len(z)} samples from {start:.0f} ns after the probe | baseline "
+                f"{np.abs(z[:BASELINE_NS] - z[:BASELINE_NS].mean()).mean():.2e} | peak "
+                f"{magnitude[peak]:.2e} at sample {peak} | arrival sample {sample}"
+            )
+            np.save(OUTPUT_DIR / f"cqt_time_of_flight_{name}.npy", z)
             results[name] = (start, compensation, sample, magnitude)
     finally:
         platform.disconnect()
