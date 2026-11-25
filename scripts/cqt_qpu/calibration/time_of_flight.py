@@ -8,10 +8,11 @@ Usage (from the repository root)::
 
 For each qubit the readout probe (the platform's MZ native gate) is played detuned by
 ``--detuning`` from the resonator, so that the response does not depend on the resonator,
-with the acquisition ``delay`` set to 0, and a RAW trace is acquired. As in the
-``cal00_time_of_flight`` experiment of the Qblox Scheduler demos, the arrival of the signal
-is the first of two consecutive samples of the magnitude, after removing the complex
-baseline, which are 4 standard deviations of the baseline above it. The time of flight is
+with the acquisition ``delay`` set to 0, and a RAW trace is acquired. The arrival of the
+signal is where the magnitude, averaged over 8 ns, stays 6 standard deviations above the
+noise (measured on the tail of the trace) for 24 ns; this is stricter than the
+``cal00_time_of_flight`` experiment of the Qblox Scheduler demos, which a noise spike can
+pass when the signal is weak. The time of flight is
 that sample plus the start of the trace (``delay`` plus, where the output of the module
 has a delay compensation, the 340 ns of the driver; the QRC outputs have none).
 
@@ -44,22 +45,35 @@ from common import OUTPUT_DIR, PLATFORMS
 PLATFORM = "CQT_QPU"
 DETUNING = 20e6  # Hz
 NSHOTS = 1024
-BASELINE_NS = 40  # samples before the arrival of the signal, taken as the baseline
 GRID_NS = 4
 OUTPUT = OUTPUT_DIR / "cqt_time_of_flight.png"
 
 
+SMOOTH_NS = 8
+SUSTAINED_NS = 24
+TAIL_NS = 4096
+SIGMAS = 6
+
+
 def arrival(trace: np.ndarray) -> tuple[int | None, np.ndarray]:
-    """First sample of the signal in a complex trace: two consecutive ones above 4 sigma."""
-    adjusted = trace - np.mean(trace[:BASELINE_NS])
-    magnitude = np.abs(adjusted)
-    baseline = magnitude[:BASELINE_NS]
-    threshold = baseline.mean() + 4 * baseline.std()
-    above = np.flatnonzero(magnitude > threshold)
-    pairs = np.flatnonzero(np.diff(above) == 1)
-    if len(pairs) == 0:
+    """First sample of the signal in a complex trace.
+
+    The noise is measured on the tail of the trace, long after the probe has ended. The
+    magnitude is averaged over ``SMOOTH_NS`` and the signal arrives where it is more than
+    ``SIGMAS`` standard deviations above the tail for ``SUSTAINED_NS`` in a row (a
+    pulse lasts hundreds of ns, a noise spike does not).
+    """
+    tail = trace[-TAIL_NS:]
+    magnitude = np.abs(trace - tail.mean())
+    smooth = np.convolve(magnitude, np.ones(SMOOTH_NS) / SMOOTH_NS, mode="same")
+    reference = smooth[-TAIL_NS:]
+    above = smooth > reference.mean() + SIGMAS * reference.std()
+    above[-TAIL_NS:] = False
+    run = np.convolve(above, np.ones(SUSTAINED_NS), mode="valid")
+    found = np.flatnonzero(run == SUSTAINED_NS)
+    if len(found) == 0:
         return None, magnitude
-    return int(above[pairs[0]]), magnitude
+    return int(found[0]), magnitude
 
 
 def main() -> None:
@@ -76,6 +90,7 @@ def main() -> None:
     parser.add_argument(
         "--profile", type=int, default=2000, help="ns of the printed profile"
     )
+    parser.add_argument("--nshots", type=int, default=NSHOTS)
     args = parser.parse_args()
 
     os.environ.setdefault("QIBOLAB_PLATFORMS", str(PLATFORMS))
@@ -117,7 +132,7 @@ def main() -> None:
             try:
                 res = platform.execute(
                     [sequence],
-                    nshots=NSHOTS,
+                    nshots=args.nshots,
                     acquisition_type=AcquisitionType.RAW,
                     averaging_mode=AveragingMode.CYCLIC,
                 )
@@ -132,7 +147,7 @@ def main() -> None:
             peak = int(np.argmax(magnitude))
             print(
                 f"{name}: {len(z)} samples from {start:.0f} ns after the probe | baseline "
-                f"{np.abs(z[:BASELINE_NS] - z[:BASELINE_NS].mean()).mean():.2e} | peak "
+                f"{np.abs(z[-TAIL_NS:] - z[-TAIL_NS:].mean()).mean():.2e} (tail) | peak "
                 f"{magnitude[peak]:.2e} at sample {peak} | arrival sample {sample}"
             )
             np.save(OUTPUT_DIR / f"cqt_time_of_flight_{name}.npy", z)
@@ -148,7 +163,7 @@ def main() -> None:
     print(f"\n{'qubit':>6} {'tof (ns)':>9} {'delay to set (ns)':>18}")
     delays = {}
     for name, (start, compensation, sample, _) in results.items():
-        if sample is None or sample <= BASELINE_NS:
+        if sample is None or sample <= SMOOTH_NS:
             print(
                 f"{name:>6}  signal not found, or already there at the start of the trace "
                 f"({start:.0f} ns after the probe): the time of flight is shorter, or the "
