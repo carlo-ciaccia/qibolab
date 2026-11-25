@@ -36,6 +36,7 @@ for the measurement. The NCO propagation delay compensation that the Scheduler a
 """
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -136,6 +137,12 @@ def main() -> None:
     )
     parser.add_argument("--nshots", type=int, default=NSHOTS)
     parser.add_argument(
+        "--dump",
+        type=Path,
+        help="save the parameters of the module of the (last) qubit after the measurement, "
+        "to compare with the ones of the Scheduler (scripts/qrc_validation/dump_module.py)",
+    )
+    parser.add_argument(
         "--platform",
         default=PLATFORM,
         help="e.g. qblox_qrc_loopback (QRC_SLOT, QRC_CLUSTER_IP), with a flat probe",
@@ -233,6 +240,16 @@ def main() -> None:
                 f"{magnitude[peak]:.2e} at sample {peak} | arrival sample {sample}"
             )
             np.save(OUTPUT_DIR / f"cqt_time_of_flight_{name}.npy", z)
+            if args.dump:
+                sys.path.insert(
+                    0, str(Path(__file__).resolve().parents[2] / "qrc_validation")
+                )
+                from dump_module import flatten
+
+                slot = int(str(channels[acquisition].path).split("/")[0])
+                values = flatten(controller._modules[slot].snapshot(update=True))
+                args.dump.write_text(json.dumps(values, indent=1, default=str))
+                print(f"{len(values)} parameters of module {slot} saved in {args.dump}")
             binned = magnitude[: args.profile // 50 * 50].reshape(-1, 50).mean(axis=1)
             print(
                 f"{name}: mean |signal| per 50 ns from the start of the trace: "
