@@ -84,6 +84,20 @@ not in ``parameters.json``):
     QCM modules start 280 ns later than before. A delay that was added by hand to compensate
     the offset has to be removed, or it is compensated twice.
 
+The ``delay`` of an acquisition channel in ``parameters.json`` is the time from the start of the
+probe, as it is played by the sequencer, to the start of the integration window. The probe of a
+readout on a module with delay compensation is 340 ns late (the same compensation as above), so
+the driver starts the window ``delay + 340`` ns after the probe, as the Qblox documentation
+asks for. The QRC outputs have no delay compensation, so the window of a QRC readout starts
+``delay`` ns after the probe, as the ``acq_delay`` of Qblox Scheduler, and a value measured there
+(for example with the ``cal00_time_of_flight`` experiment of the Scheduler demos) can be used as it
+is. Before, the 340 ns were also added to the QRC, which started the window 340 ns after the
+arrival of the signal, and made the delays shorter than 344 ns impossible. A delay that was
+calibrated on a QRC with that version (for example with Qibocal) had the 340 ns absorbed, so
+add 340 ns to it, or measure it again (Qibocal's time-of-flight routine is right again after
+the change). ``scripts/qrc_validation/time_of_flight_check.py`` measures the time of flight of
+a loopback.
+
 The 340 ns was read on the cluster for all the QCM and QRC outputs, with all the filters in the
 same state (a mix of enabled and delay-compensated filters was not read, but the compensation
 is meant to give the same total). The output paths of 110 ns and 170 ns come from the Qblox

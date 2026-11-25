@@ -2,6 +2,7 @@ import logging
 import time
 import warnings
 from collections import defaultdict
+from collections.abc import Collection
 from functools import cached_property
 from itertools import groupby
 from typing import cast
@@ -88,8 +89,12 @@ def _compute_duration(
     return options.estimate_duration([ps], sweepers, wait_sync_duration)
 
 
-def _add_time_of_flight(sequence: PulseSequence, configs: Configs) -> PulseSequence:
-    time_of_flights_ = time_of_flights(configs)
+def _add_time_of_flight(
+    sequence: PulseSequence,
+    configs: Configs,
+    uncompensated: Collection[ChannelId] = (),
+) -> PulseSequence:
+    time_of_flights_ = time_of_flights(configs, uncompensated)
     return PulseSequence(
         [
             (
@@ -141,6 +146,7 @@ def _batch_sequences(
     configs: Configs,
     channel_limits: dict[ChannelId, int] | None = None,
     latencies: dict[ChannelId, float] | None = None,
+    uncompensated: Collection[ChannelId] = (),
 ) -> list[PulseSequence]:
     batched_seqs = (
         batch_sequences_by_cluster_memory_limits(
@@ -150,7 +156,9 @@ def _batch_sequences(
         else sequences
     )
     return [
-        _align_latencies(_add_time_of_flight(b, configs), latencies).align_to_delays()
+        _align_latencies(
+            _add_time_of_flight(b, configs, uncompensated), latencies
+        ).align_to_delays()
         for b in batched_seqs
     ]
 
@@ -263,6 +271,15 @@ class Cluster(Controller):
                     else QRM_INSTRUCTION_MEMORY
                 )
         return limits
+
+    def _qrc_channels(self) -> set[ChannelId]:
+        """The channels of the QRC modules, whose outputs have no delay compensation."""
+        return {
+            ch
+            for slot, chs in self._channels_by_module.items()
+            if self._modules[slot].is_qrc_type
+            for ch, _ in chs
+        }
 
     def _channel_latencies(self) -> dict[ChannelId, float]:
         """Time, in ns, that the signal of each channel takes to reach its output."""
@@ -389,6 +406,7 @@ class Cluster(Controller):
             configs,
             self._instruction_limits(),
             self._channel_latencies(),
+            self._qrc_channels(),
         )
 
         # configure the modules

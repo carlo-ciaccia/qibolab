@@ -73,7 +73,7 @@ def test_raw_acquisition_sequences_are_not_batched(monkeypatch):
     monkeypatch.setattr(
         cluster,
         "_add_time_of_flight",
-        lambda sequence, _configs: sequence,
+        lambda sequence, _configs, *_args: sequence,
     )
     monkeypatch.setattr(
         cluster,

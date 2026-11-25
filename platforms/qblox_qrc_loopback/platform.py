@@ -14,12 +14,13 @@ from qibolab import Hardware, Qubit
 from qibolab._core.instruments.qblox.cluster import Cluster
 from qibolab._core.instruments.qblox.platform import map_ports
 
-QRC_SLOT = 2
+QRC_SLOT = int(os.environ.get("QRC_SLOT", "2"))
+"""Slot of the QRC, 2 unless the ``QRC_SLOT`` environment variable says otherwise."""
 DEFAULT_ADDRESS = "10.10.200.126"
 
 
 def create() -> Hardware:
-    """Create the platform using the QRC in slot 2, paired IO port 1."""
+    """Create the platform using the QRC in ``QRC_SLOT``, paired IO port 1."""
     qubits = {"q0": Qubit.default("q0", channels=["probe", "acquisition"])}
     channels = map_ports({"qrc": (QRC_SLOT, {"io1": ["q0"]})}, qubits)
 

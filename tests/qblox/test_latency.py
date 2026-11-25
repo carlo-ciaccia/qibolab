@@ -17,6 +17,7 @@ from qibolab._core.instruments.qblox.limits import (
     QRC_OUTPUT_PATH_LATENCY,
 )
 from qibolab._core.instruments.qblox.platform import map_ports
+from qibolab._core.instruments.qblox.utils import time_of_flights
 from qibolab._core.pulses import Acquisition, Delay, Pulse, Readout, Rectangular
 from qibolab._core.qubits import Qubit
 from qibolab._core.sequence import PulseSequence
@@ -173,3 +174,49 @@ def test_batched_sequences_have_the_qrc_channels_delayed():
         [sequence], [], options, {FLUX}, {DRIVE, READOUT}, {}, None, None
     )[0]
     assert unaligned.channel_duration(DRIVE) == pytest.approx(20)
+
+
+def test_the_qrc_channels_are_the_ones_without_delay_compensation():
+    assert cluster()._qrc_channels() == {READOUT, DRIVE}
+
+
+def test_the_time_of_flight_of_a_qrc_readout_is_its_delay():
+    """The QRC outputs have no delay compensation: its probe is not 340 ns late."""
+    other = "q9/acquisition"
+    configs = {
+        READOUT: AcquisitionConfig(delay=324, smearing=0, threshold=0.0),
+        other: AcquisitionConfig(delay=324, smearing=0, threshold=0.0),
+    }
+
+    assert time_of_flights(configs) == {
+        READOUT: 324 + FILTER_DELAY_COMPENSATION,
+        other: 324 + FILTER_DELAY_COMPENSATION,
+    }
+    assert time_of_flights(configs, {READOUT}) == {
+        READOUT: 324,
+        other: 324 + FILTER_DELAY_COMPENSATION,
+    }
+    short = {READOUT: AcquisitionConfig(delay=0, smearing=0, threshold=0.0)}
+    assert time_of_flights(short, {READOUT}) == {READOUT: 4}  # the sequencer grid
+
+
+def test_the_batched_readout_of_a_qrc_has_the_time_of_flight_without_the_340_ns():
+    options = ExecutionParameters(nshots=1, relaxation_time=100)
+    configs = {READOUT: AcquisitionConfig(delay=300, smearing=0, threshold=0.0)}
+    mz = Readout(acquisition=Acquisition(duration=100), probe=pulse(100))
+    sequence = PulseSequence([(FLUX, pulse()), (READOUT, mz)])
+    target = cluster()
+
+    (batched,) = _batch_sequences(
+        [sequence],
+        [],
+        options,
+        {FLUX},
+        {READOUT},
+        configs,
+        None,
+        target._channel_latencies(),
+        target._qrc_channels(),
+    )
+
+    assert next(e for _, e in batched if isinstance(e, Readout)).time_of_flight == 300

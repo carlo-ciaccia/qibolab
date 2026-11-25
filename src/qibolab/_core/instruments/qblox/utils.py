@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from functools import reduce
 from typing import cast
 
@@ -81,15 +82,23 @@ def lo_configs(
     return {ch: cast(OscillatorConfig, configs[lo]) for ch, lo in los.items()}
 
 
-def time_of_flights(configs: Configs) -> dict[ChannelId, float]:
+def time_of_flights(
+    configs: Configs, uncompensated: Collection[ChannelId] = ()
+) -> dict[ChannelId, float]:
     """Extract time of flights configurations.
 
     An additional 340 ns are supplemented, to account for the extra delay caused by
     usage of all pre-distortion filters, and consequent delay compensations. Cf.
     https://docs.qblox.com/en/v0.17.1/cluster/real_time_predistortions.html#bypasses-and-delays
+
+    The channels in ``uncompensated`` are those whose output has no delay compensation,
+    i.e. the ones of the QRC: its probe is not delayed, so the acquisition must not wait
+    for the 340 ns either, and the ``delay`` of the configuration is the time of flight
+    (as the ``acq_delay`` of Qblox Scheduler).
     """
     return {
-        ch: max(config.delay, 4.0) + FILTER_DELAY_COMPENSATION
+        ch: max(config.delay, 4.0)
+        + (0.0 if ch in uncompensated else FILTER_DELAY_COMPENSATION)
         for ch, config in configs.items()
         if isinstance(config, AcquisitionConfig)
     }

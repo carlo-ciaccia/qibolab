@@ -125,6 +125,26 @@ https://docs.qblox.com/en/v2026.08.0/products/architecture/modules/real_time_pre
 """
 
 
+EXP_TAU_RANGE = (6.0, 2e6)
+"""Range, in ns, of the time constant of the exponential filters of the QCM."""
+EXP_AMPLITUDE_RANGE = (-1.0, 1.0)
+"""Range of the relative amplitude of the exponential filters (the upper bound excluded)."""
+FIR_COEFFICIENT_RANGE = (-2.0, 2.0)
+"""Range of the coefficients of the FIR filter (the upper bound excluded)."""
+
+
+def qblox_exponential(exp: ExponentialFilter) -> tuple[float, float]:
+    """Amplitude and time constant (ns) of the Qblox filter that corrects ``exp``.
+
+    The filter of a QCM output has the step response ``1 - A' exp(-t / tau')``, i.e. it
+    is first order, while the :class:`.ExponentialFilter` corrects a signal with the step
+    response ``1 + A exp(-t / tau)``. The exact inverse of the latter has
+    ``A' = A / (1 + A)`` and ``tau' = tau (1 + A)``, which is used, instead of passing the
+    parameters as they are: with them the correction would be off by about ``A ** 2``.
+    """
+    return exp.amplitude / (1 + exp.amplitude), exp.tau * (1 + exp.amplitude)
+
+
 def _pad_fir_coefficients(coefficients: list[float]) -> list[float]:
     """Qblox predistortion filters expect a number of taps of exactly QCM_FIR_NTAPS.
     If the platform holds a smaller number, they are appended with zeroes.
@@ -134,6 +154,11 @@ def _pad_fir_coefficients(coefficients: list[float]) -> list[float]:
         raise ValueError(
             f"FIR filter with {n} taps is not supported by Qblox QCM modules, which "
             f"expects exactly {QCM_FIR_NTAPS} taps."
+        )
+    low, high = FIR_COEFFICIENT_RANGE
+    if any(not low <= c < high for c in coefficients):
+        raise ValueError(
+            f"FIR coefficients must be in [{low:g}, {high:g}), got {coefficients}."
         )
     return coefficients + [0.0] * (QCM_FIR_NTAPS - n)
 
@@ -312,9 +337,27 @@ class PortConfig(BaseModel):
         exps = [f for f in dc.filters if isinstance(f, ExponentialFilter)]
         assert len(exps) <= 4, "At most 4 exponential filters available"
         for m, exp in enumerate(exps):
+            if exp.amplitude <= -1:
+                raise ValueError(
+                    "The amplitude of an exponential filter must be above -1, got "
+                    f"{exp.amplitude:g}."
+                )
+            amplitude, tau = qblox_exponential(exp)
+            tau_low, tau_high = EXP_TAU_RANGE
+            amp_low, amp_high = EXP_AMPLITUDE_RANGE
+            if not tau_low <= tau <= tau_high:
+                raise ValueError(
+                    f"The time constant of an exponential filter, tau (1 + amplitude) "
+                    f"= {tau:g} ns, must be between {tau_low:g} ns and {tau_high:g} ns."
+                )
+            if not amp_low <= amplitude < amp_high:
+                raise ValueError(
+                    f"The amplitude of an exponential filter, A / (1 + A) = {amplitude:g}, "
+                    f"must be in [{amp_low:g}, {amp_high:g})."
+                )
             setattr(self, f"exp{m}_config", "enabled")
-            setattr(self, f"exp{m}_amplitude", exp.amplitude)
-            setattr(self, f"exp{m}_time_constant", exp.tau)
+            setattr(self, f"exp{m}_amplitude", amplitude)
+            setattr(self, f"exp{m}_time_constant", tau)
 
 
 StrDict = dict[str, Any]

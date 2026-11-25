@@ -82,6 +82,20 @@ def _qrc_write_order(ports: dict[str, Any]) -> list[tuple[str, Any]]:
     ]
 
 
+def _current_parameter(mod: Module, name: str, value: Any) -> tuple[str, Any]:
+    """Use ``tau_constant`` (seconds) for the time constants of the exponential filters.
+
+    The ``exp{n}_time_constant`` parameters (nanoseconds) are deprecated in recent
+    versions of ``qblox-instruments``, which have ``exp{n}_tau_constant`` (seconds)
+    instead: they are used when the module has them.
+    """
+    if name.endswith("_time_constant"):
+        new = name.removesuffix("_time_constant") + "_tau_constant"
+        if new in mod.parameters:
+            return new, value * 1e-9
+    return name, value
+
+
 class ModuleType(Flag):
     """Module types, used to declaratively restrict configurations scope."""
 
@@ -226,7 +240,8 @@ class ModuleConfig(Model):
 
         ports = _qrc_write_order(self.ports) if mod.is_qrc_type else self.ports.items()
         for config, value in ports:
-            mod.parameters[config].set(value)
+            name, value = _current_parameter(mod, config, value)
+            mod.parameters[name].set(value)
 
         # apply all the other configurations
         for name, field in type(self).model_fields.items():
