@@ -116,9 +116,17 @@ def main() -> None:
             sequence = platform.natives.single_qubit[name].MZ.create_sequence()
             readout = next(e for _, e in sequence if hasattr(e, "probe"))
             if args.amplitude is not None:
-                readout.probe = readout.probe.model_copy(
-                    update={"amplitude": args.amplitude}
+                louder = readout.model_copy(
+                    update={
+                        "probe": readout.probe.model_copy(
+                            update={"amplitude": args.amplitude}
+                        )
+                    }
                 )
+                sequence = type(sequence)(
+                    [(ch, louder if ev is readout else ev) for ch, ev in sequence]
+                )
+                readout = louder
             probe, acquisition = qubit.probe, qubit.acquisition
             original = (configs[probe], configs[acquisition])
             configs[probe] = original[0].model_copy(
