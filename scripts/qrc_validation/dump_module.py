@@ -5,6 +5,7 @@ Usage (from the repository root)::
     python scripts/qrc_validation/dump_module.py --address 192.168.0.80 --slot 2 --out qbs.json
     python scripts/qrc_validation/dump_module.py --address 192.168.0.80 --slot 2 --out qibolab.json
     python scripts/qrc_validation/dump_module.py --diff qbs.json qibolab.json
+    python scripts/qrc_validation/dump_module.py --show "att|lo_|nco|gain|scope|connect" qibolab.json
 
 Why: the same measurement (the time of flight of one readout line) is clean with the Qblox
 Scheduler and noisy with the Qibolab driver. Both leave the module configured the way they
@@ -72,6 +73,16 @@ def diff(first: Path, second: Path, everything: bool) -> None:
     print(f"\n{len(rows)} parameters differ ({len(a)} and {len(b)} in the dumps)")
 
 
+def show(pattern: str, path: Path) -> None:
+    """The parameters of a dump whose name matches the regular expression."""
+    values = json.loads(path.read_text(encoding="utf-8"))
+    matching = {k: v for k, v in values.items() if re.search(pattern, k)}
+    for key, value in matching.items():
+        print(f"{key:<60} {str(value)[:40]}")
+    print(f"
+{len(matching)} of {len(values)} parameters match")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--address", default=os.environ.get("QRC_CLUSTER_IP"))
@@ -79,8 +90,11 @@ def main() -> None:
     parser.add_argument("--out", type=Path)
     parser.add_argument("--diff", nargs=2, type=Path, metavar=("FIRST", "SECOND"))
     parser.add_argument("--all", action="store_true", help="also the usual noise")
+    parser.add_argument("--show", nargs=2, metavar=("REGEX", "FILE"))
     args = parser.parse_args()
-    if args.diff:
+    if args.show:
+        show(args.show[0], Path(args.show[1]))
+    elif args.diff:
         diff(*args.diff, args.all)
     elif args.address and args.slot is not None and args.out:
         dump(args.address, args.slot, args.out)
