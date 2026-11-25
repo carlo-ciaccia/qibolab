@@ -9,10 +9,11 @@ Usage (from the repository root)::
 For each qubit the readout probe (the platform's MZ native gate) is played detuned by
 ``--detuning`` from the resonator, so that the response does not depend on the resonator,
 with the acquisition ``delay`` set to 0, and a RAW trace is acquired. The arrival of the
-signal is where the magnitude, averaged over 8 ns, stays 6 standard deviations above the
-noise (measured on the tail of the trace) for 24 ns; this is stricter than the
-``cal00_time_of_flight`` experiment of the Qblox Scheduler demos, which a noise spike can
-pass when the signal is weak. The time of flight is
+signal is where a window as long as the probe has the largest power (a matched filter for
+the rectangular probe, which works when the signal is below the noise of a single sample),
+if that is 6 standard deviations above what the same filter gives on the tail of the trace.
+The Scheduler demo uses a threshold on single samples, which a noise spike can pass and a
+weak signal does not reach. The time of flight is
 that sample plus the start of the trace (``delay`` plus, where the output of the module
 has a delay compensation, the 340 ns of the driver; the QRC outputs have none).
 
@@ -65,14 +66,12 @@ GRID_NS = 4
 OUTPUT = OUTPUT_DIR / "cqt_time_of_flight.png"
 
 
-SMOOTH_NS = 8
-SUSTAINED_NS = 24
-TAIL_NS = 4096
-SIGMAS = 6
-
-
 LOOPBACK_PROBE_NS = 1000
 LOOPBACK_AMPLITUDE = 0.2
+SMOOTH_NS = 8
+TAIL_NS = 4096
+SEARCH_NS = 3000
+SIGMAS = 6
 
 
 def readout_sequence(platform, name: str) -> PulseSequence:
@@ -92,25 +91,33 @@ def readout_sequence(platform, name: str) -> PulseSequence:
     return PulseSequence([(platform.qubits[name].acquisition, readout)])
 
 
-def arrival(trace: np.ndarray) -> tuple[int | None, np.ndarray]:
-    """First sample of the signal in a complex trace.
+def arrival(trace: np.ndarray, duration: int) -> tuple[int | None, np.ndarray]:
+    """Sample where a probe of ``duration`` ns starts in a complex trace.
 
-    The noise is measured on the tail of the trace, long after the probe has ended. The
-    magnitude is averaged over ``SMOOTH_NS`` and the signal arrives where it is more than
-    ``SIGMAS`` standard deviations above the tail for ``SUSTAINED_NS`` in a row (a
-    pulse lasts hundreds of ns, a noise spike does not).
+    A threshold on single samples fails when the signal is below the noise of a sample, as
+    in a readout line with the input attenuated. The probe is a rectangle of known length,
+    so the arrival is where the power of ``duration`` consecutive samples is the largest
+    (matched filter, the position of the edge is then known to a few ns even at a low signal
+    to noise). The noise is measured on the tail of the trace, long after the probe: the
+    arrival is accepted if the score is ``SIGMAS`` standard deviations above what the same
+    filter gives on the tail. The returned magnitude is smoothed over ``SMOOTH_NS``.
     """
     tail = trace[-TAIL_NS:]
-    magnitude = np.abs(trace - tail.mean())
-    smooth = np.convolve(magnitude, np.ones(SMOOTH_NS) / SMOOTH_NS, mode="same")
-    reference = smooth[-TAIL_NS:]
-    above = smooth > reference.mean() + SIGMAS * reference.std()
-    above[-TAIL_NS:] = False
-    run = np.convolve(above, np.ones(SUSTAINED_NS), mode="valid")
-    found = np.flatnonzero(run == SUSTAINED_NS)
-    if len(found) == 0:
+    adjusted = trace - tail.mean()
+    power = np.abs(adjusted) ** 2
+    magnitude = np.convolve(
+        np.abs(adjusted), np.ones(SMOOTH_NS) / SMOOTH_NS, mode="same"
+    )
+    csum = np.concatenate([[0.0], np.cumsum(power)])
+    score = (
+        csum[duration:] - csum[:-duration]
+    ) / duration  # starts 0 .. len - duration
+    null = score[len(score) - (TAIL_NS - duration) :]  # windows inside the tail
+    window = score[:SEARCH_NS]
+    best = int(np.argmax(window))
+    if window[best] < null.mean() + SIGMAS * null.std():
         return None, magnitude
-    return int(found[0]), magnitude
+    return best, magnitude
 
 
 def main() -> None:
@@ -218,7 +225,7 @@ def main() -> None:
             compensation = (
                 0.0 if acquisition in uncompensated else FILTER_DELAY_COMPENSATION
             )
-            sample, magnitude = arrival(z)
+            sample, magnitude = arrival(z, int(readout.probe.duration))
             peak = int(np.argmax(magnitude))
             print(
                 f"{name}: {len(z)} samples from {start:.0f} ns after the probe | baseline "
@@ -238,7 +245,7 @@ def main() -> None:
     print(f"\n{'qubit':>6} {'tof (ns)':>9} {'delay to set (ns)':>18}")
     delays = {}
     for name, (start, compensation, sample, _) in results.items():
-        if sample is None or sample <= SMOOTH_NS:
+        if sample is None or sample < 0:
             print(
                 f"{name:>6}  signal not found, or already there at the start of the trace "
                 f"({start:.0f} ns after the probe): the time of flight is shorter, or the "
