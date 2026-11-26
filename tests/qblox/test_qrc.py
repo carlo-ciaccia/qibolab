@@ -436,6 +436,11 @@ def _recording_module():
     return _RecordingModule()
 
 
+def _written(module) -> list:
+    """What was written to the module, without the settings of the scope."""
+    return [call for call in module.calls if not call[0].startswith("scope_acq")]
+
+
 def test_qrc_input_attenuation_and_lo_order():
     """The inputs are attenuated before the LOs, which raise the overrange otherwise.
 
@@ -447,7 +452,7 @@ def test_qrc_input_attenuation_and_lo_order():
         ports={"out0_att": 23.5, "out0_in0_lo_freq": 5.4e9, "in0_att": 30}
     ).apply(module, disconnect=False)
 
-    assert module.calls == [
+    assert _written(module) == [
         ("in0_att", 30),
         ("out0_in0_lo_freq", 5.4e9),
         ("out0_att", 23.5),
@@ -460,7 +465,7 @@ def test_qrc_input_attenuation_above_the_safe_value_is_completed_after_the_lo():
         ports={"in0_att": 50, "out0_in0_lo_freq": 5.4e9, "out0_att": 23.5}
     ).apply(module, disconnect=False)
 
-    assert module.calls == [
+    assert _written(module) == [
         ("in0_att", 40),
         ("out0_in0_lo_freq", 5.4e9),
         ("in0_att", 50),
@@ -503,8 +508,20 @@ def test_qrc_modules_are_configured_for_the_active_channels_only():
 
     Cluster._configure_modules(cluster, configs, {"q0/acquisition"})
 
-    written = {name for name, _ in module.calls}
+    written = {name for name, _ in _written(module)}
     assert written == {"in0_att", "out0_in0_lo_freq", "out0_att"}
+
+
+def test_the_scope_of_a_qrc_averages_the_shots_on_both_inputs():
+    """RAW traces are the average of the shots; without it they are a single shot, with
+    about sqrt(nshots) times the noise (the QRC is not a QRM type for qblox-instruments)."""
+    module = _recording_module()
+    ModuleConfig(ports={}).apply(module, disconnect=False)
+
+    scope = dict(module.calls)
+    for path in range(4):
+        assert scope[f"scope_acq_avg_mode_en_path{path}"] is True
+        assert scope[f"scope_acq_trigger_mode_path{path}"] == "sequencer"
 
 
 def test_qrc_modules_are_configured_for_all_channels_by_default():

@@ -103,6 +103,8 @@ class ModuleType(Flag):
     """QRM type module."""
     RF = auto()
     """Radio frequency module."""
+    QRC = auto()
+    """QRC type module."""
 
 
 class ModuleConfig(Model):
@@ -137,6 +139,18 @@ class ModuleConfig(Model):
 
     scope_acq_avg_mode_en_path1: Annotated[bool, ModuleType.QRM] = True
     """Scope acquisition averaging mode enable for path 1."""
+    scope_acq_trigger_mode_path2: Annotated[
+        Literal["sequencer", "level"], ModuleType.QRC
+    ] = "sequencer"
+    """Scope trigger mode for path 2, the first path of the second input of a QRC."""
+    scope_acq_trigger_mode_path3: Annotated[
+        Literal["sequencer", "level"], ModuleType.QRC
+    ] = "sequencer"
+    """Scope trigger mode for path 3, cf. :attr:`scope_acq_trigger_mode_path2`."""
+    scope_acq_avg_mode_en_path2: Annotated[bool, ModuleType.QRC] = True
+    """Scope acquisition averaging mode enable for path 2 (second input of a QRC)."""
+    scope_acq_avg_mode_en_path3: Annotated[bool, ModuleType.QRC] = True
+    """Scope acquisition averaging mode enable for path 3 (second input of a QRC)."""
 
     @classmethod
     def build(
@@ -223,7 +237,11 @@ class ModuleConfig(Model):
         if len(flag) > 0:
             assert len(flag) == 1
             modtype = flag[0]
-            if ModuleType.QRM in modtype and not mod.is_qrm_type:
+            # the scope of a QRC has the same settings as the one of a QRM: it is a
+            # module with inputs too, but it is not a QRM type for qblox-instruments
+            if ModuleType.QRM in modtype and not has_inputs(mod):
+                return
+            if ModuleType.QRC in modtype and not mod.is_qrc_type:
                 return
             if ModuleType.RF in modtype and not mod.is_rf_type:
                 return
