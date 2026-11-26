@@ -99,6 +99,11 @@ def main() -> None:
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--nshots", type=int, default=2000)
     parser.add_argument("--relaxation", type=float, default=100e3, help="ns")
+    parser.add_argument(
+        "--input-attenuation",
+        type=float,
+        help="dB of the QRC input during the run, default: platform",
+    )
     args = parser.parse_args()
 
     os.environ.setdefault("QIBOLAB_PLATFORMS", str(PLATFORMS))
@@ -118,6 +123,12 @@ def main() -> None:
         print("Dry run only. Use --run to execute on the cluster.")
         return
 
+    if args.input_attenuation is not None:
+        for q in qubits:
+            acq = platform.qubits[q].acquisition
+            configs[acq] = configs[acq].model_copy(
+                update={"attenuation": args.input_attenuation}
+            )
     rows = []
     platform.connect()
     try:
