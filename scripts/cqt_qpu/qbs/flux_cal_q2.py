@@ -11,6 +11,7 @@ Run it from ``docs/applications/superconducting`` of that repository, with its `
     python <this file> --phase 2     # cryoscope of the bare line, fit and apply the filters, XY-Z with the filters on
     python <this file> --phase 3     # cryoscope with the filters on, XY-Z check
     python <this file> --phase 4     # second amplitude: cryoscope without and with the filters
+    python <this file> --phase 5     # XY-readout delay again, at the largest XY amplitude and two tones
 
 Nothing is written to the hardware config files. Figures and the measured responses go to ``--out``.
 """
@@ -48,7 +49,7 @@ MAX_EXP = 2
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--phase", type=int, required=True, choices=[1, 2, 3, 4])
+    parser.add_argument("--phase", type=int, required=True, choices=[1, 2, 3, 4, 5])
     parser.add_argument("--amp", type=float, default=0.41, help="flux step of the cryoscope (V on top of the sweet spot)")
     parser.add_argument("--amp2", type=float, default=0.205, help="second flux step (phase 4)")
     parser.add_argument("--state", default=str(Path.home() / "qbs_q2_state.json"))
@@ -158,6 +159,15 @@ def main():
             cryoscope(f"bare_{args.amp2}", args.amp2)
             restore_state()
             cryoscope(f"filters_{args.amp2}", args.amp2)
+        elif args.phase == 5:
+            restore_state(with_stages=False)
+            for detuning in (50e6, 100e6):
+                xyro = XYReadoutDelay([qubit])
+                xyro.execute(frequency_detuning=detuning, **{**XYRO, "xy_amp": 1.0, "repetitions": 400_000})
+                xyro.analyze()
+                xyro.plot_analysis()
+                tuning.record_delays(f"D amplitude 1.0, tone {detuning / 1e6:.0f} MHz", xyro)
+                snap(f"xyro_{detuning / 1e6:.0f}")
         tuning.print_summary()
     finally:
         tuning.release_flux_lines()
