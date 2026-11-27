@@ -139,6 +139,17 @@ def analyse(amplitudes, freqs, amp):
     for i, row in enumerate(amp):
         centres[i], contrast[i] = line_center(freqs, row)
     good = np.isfinite(centres) & (contrast > MIN_CONTRAST)
+    # a centre at the edge of the window is only a lower bound: the qubit is further away
+    edge = 2 * (freqs[1] - freqs[0])
+    good &= (centres > freqs[0] + edge) & (centres < freqs[-1] - edge)
+    # drop the rows where another line (or noise) was found instead of the qubit
+    for _ in range(3):
+        if good.sum() < 5:
+            break
+        fit = np.polyfit(amplitudes[good], centres[good], 2)
+        residual = centres - np.polyval(fit, amplitudes)
+        scale = max(1.4826 * np.median(np.abs(residual[good])), 2e6)
+        good &= np.abs(residual) < 4 * scale
     if good.sum() < 5:
         raise RuntimeError(
             f"Only {good.sum()} of {len(good)} lines are clear: check the window of the "
