@@ -1,0 +1,38 @@
+# Cryoscope of the flux line of q2, run with Qibocal on the fieldlab cluster:
+#
+#   export QIBOLAB_PLATFORMS=~/Code/qibolab/platforms
+#   ~/Code/qibocal/.venv/bin/qq run scripts/cqt_qpu/runcards/cryoscope_q2.yml -o <folder> -f
+#
+# The first action measures the step response of the flux line without any filter and
+# derives the filters. The platform is updated in memory between actions (the files in
+# platforms/ are not touched by `qq run`), so the second action applies those filters and
+# its "Waveform with filters applied" trace should be flat.
+# flux_pulse_amplitude: the flux_coefficients of calibration.json were fitted up to about
+# 0.32 (detuning 0.24 GHz), keep the amplitude below that.
+backend: qibolab
+platform: CQT_QPU
+
+targets: [q2]
+
+actions:
+
+  - id: cryoscope
+    operation: cryoscope
+    parameters:
+      nshots: 1000
+      duration_max: 80
+      flux_pulse_amplitude: 0.3
+      fir: 32
+      iir: true
+      relaxation_time: 50000
+
+  - id: cryoscope with filters
+    operation: cryoscope
+    parameters:
+      nshots: 1000
+      duration_max: 80
+      flux_pulse_amplitude: 0.3
+      fir: 32
+      iir: true
+      use_existing_filter: true
+      relaxation_time: 50000

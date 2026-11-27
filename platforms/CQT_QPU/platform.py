@@ -38,6 +38,12 @@ FLUX_LINES = {
     18: {2: "tc5_6", 3: "tc9_10", 4: "tc10_15"},
 }
 
+CHANNEL_DELAYS = {
+    # extra latency in ns of single channels, from ``xy_z_delay.py`` (2026-11-27): the
+    # flux step of q2 reached the qubit 3.6 ns before the drive, rounded to the 4 ns grid
+    "q2/flux": -4.0,
+}
+
 QRC = {
     2: {
         "io1": ["q1", "q2", "q5", "q6", "q7"],
@@ -105,6 +111,7 @@ def create() -> Hardware:
         name="cluster0",
         address=os.environ.get("QRC_CLUSTER_IP", DEFAULT_ADDRESS),
         channels=channels,
+        channel_delays=CHANNEL_DELAYS,
     )
     return Hardware(
         instruments={"cluster0": controller}, qubits=qubits, couplers=couplers
