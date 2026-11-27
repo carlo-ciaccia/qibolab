@@ -7,6 +7,8 @@
 # derives the filters. The platform is updated in memory between actions (the files in
 # platforms/ are not touched by `qq run`), so the second action applies those filters and
 # its "Waveform with filters applied" trace should be flat.
+# padding_duration 8 and duration_max 64: without padding the Qblox sequencer did not stop
+# (flux pulses of 1 ns), and 20 ns of padding with 80 ns exceeds the waveform memory.
 # flux_pulse_amplitude: the flux_coefficients of calibration.json were fitted up to about
 # 0.32 (detuning 0.24 GHz), keep the amplitude below that.
 backend: qibolab
@@ -20,7 +22,8 @@ actions:
     operation: cryoscope
     parameters:
       nshots: 1000
-      duration_max: 80
+      duration_max: 64
+      padding_duration: 8
       flux_pulse_amplitude: 0.3
       fir: 32
       iir: true
@@ -30,7 +33,8 @@ actions:
     operation: cryoscope
     parameters:
       nshots: 1000
-      duration_max: 80
+      duration_max: 64
+      padding_duration: 8
       flux_pulse_amplitude: 0.3
       fir: 32
       iir: true
