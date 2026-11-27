@@ -42,7 +42,7 @@ QUBIT = "q2"
 
 XYZ = dict(flux_amp=0.4, repetitions=500, delay_start=-300e-9, delay_stop=300e-9, delay_step=2e-9)
 XYRO = dict(xy_amp=None, ro_amp=0.7, ro_duration=400e-9, xy_duration=400e-9, repetitions=100_000, max_duty=0.02)
-CRYO = dict(tau_stop=200e-9, tau_step=1e-9, t_sep=300e-9, repetitions=4000, t_fit_start=25e-9)
+CRYO = dict(tau_stop=200e-9, tau_step=1e-9, t_sep=300e-9, repetitions=2000, t_fit_start=25e-9)
 MAX_EXP = 2
 
 

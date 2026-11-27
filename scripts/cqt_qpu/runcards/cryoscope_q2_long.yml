@@ -23,7 +23,7 @@ actions:
   - id: cryoscope
     operation: cryoscope
     parameters:
-      nshots: 4000
+      nshots: 2000
       duration_max: 200
       padding_duration: 3
       flux_pulse_amplitude: 0.3
@@ -34,7 +34,7 @@ actions:
   - id: cryoscope with filters
     operation: cryoscope
     parameters:
-      nshots: 4000
+      nshots: 2000
       duration_max: 200
       padding_duration: 3
       flux_pulse_amplitude: 0.3
