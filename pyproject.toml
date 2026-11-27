@@ -31,6 +31,7 @@ Documentation = "https://qibo.science/qibolab/stable"
 backend = ["qibo>=0.3.0,<0.4.0"]
 emulator = ["qutip>=5.0.2,<6.0.0", "dynamiqs>=0.3.7,<0.4.0"]
 qrng = ["pyserial>=3.5.0,<4.0.0"]
+qblox = ["lark>=1.2.0,<2.0.0"]
 
 [dependency-groups]
 dev = [
