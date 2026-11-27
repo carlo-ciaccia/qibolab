@@ -1,0 +1,44 @@
+# Cryoscope of the flux line of q2 over 200 ns, run with Qibocal on the fieldlab cluster:
+#
+#   export QIBOLAB_PLATFORMS=~/Code/qibolab/platforms
+#   ~/Code/qibocal/.venv/bin/qq run scripts/cqt_qpu/runcards/cryoscope_q2.yml -o <folder> -f
+#
+# The first action measures the step response of the flux line without any filter and
+# derives the filters. The platform is updated in memory between actions (the files in
+# platforms/ are not touched by `qq run`), so the second action applies those filters and
+# its "Waveform with filters applied" trace should be flat.
+# padding_duration 3: the shortest flux pulse is 4 ns, without padding the Qblox sequencer did not stop
+# (flux pulses of 1 ns). Padding adds waveform memory per duration: 20 ns with 80 ns exceeds 16384 samples.
+# Needs the Qibocal cryoscope that executes MX and MY separately and in chunks of durations (branch cryoscope-qblox-separate-executes of the fork carlo-ciaccia/qibocal).
+# Long window (200 ns, 4000 shots) of cryoscope_q2.yml; the second action uses the filters derived by the first.
+# flux_pulse_amplitude: the flux_coefficients of calibration.json were fitted up to about
+# 0.32 (detuning 0.24 GHz), keep the amplitude below that.
+backend: qibolab
+platform: CQT_QPU
+
+targets: [q2]
+
+actions:
+
+  - id: cryoscope
+    operation: cryoscope
+    parameters:
+      nshots: 4000
+      duration_max: 200
+      padding_duration: 3
+      flux_pulse_amplitude: 0.3
+      fir: 32
+      iir: true
+      relaxation_time: 50000
+
+  - id: cryoscope with filters
+    operation: cryoscope
+    parameters:
+      nshots: 4000
+      duration_max: 200
+      padding_duration: 3
+      flux_pulse_amplitude: 0.3
+      fir: 32
+      iir: true
+      use_existing_filter: true
+      relaxation_time: 50000
