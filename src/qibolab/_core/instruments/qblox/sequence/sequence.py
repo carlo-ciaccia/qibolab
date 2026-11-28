@@ -19,7 +19,7 @@ from qibolab._core.sweeper import (
 from ..q1asm import Program, parse
 from .acquisition import Acquisitions, MeasureId, Weight, Weights, acquisitions
 from .program import program
-from .sweepers import is_offset_rectangular
+from .sweepers import is_offset_rectangular, reserve_sweep_durations
 from .waveforms import Waveform, WaveformIndex, waveforms
 
 __all__ = ["Q1Sequence"]
@@ -190,6 +190,8 @@ def compile(
     merged_vzs: bool,
 ) -> dict[ChannelId, Q1Sequence]:
     _check_no_offset_sweep_on_awg_offset_pulse_channel(sequence, sweepers)
+    # idempotent: the cluster has already done it, to align the channels
+    sequence = reserve_sweep_durations(sequence, sweepers)
     duration = sequence.duration
     sweeper_channels = {ch: [] for ch in swept_channels(sweepers)}
     return {

@@ -16,12 +16,19 @@ from qibolab._core.instruments.qblox.q1asm.ast_ import (
 )
 from qibolab._core.instruments.qblox.sequence.asm import Registers
 from qibolab._core.pulses import Pulse, PulseId, PulseLike, Rectangular
+from qibolab._core.sequence import PulseSequence
 from qibolab._core.serialize import Model
-from qibolab._core.sweeper import ParallelSweepers, Parameter, Range, Sweeper
+from qibolab._core.sweeper import (
+    ParallelSweepers,
+    Parameter,
+    Range,
+    Sweeper,
+    swept_pulses,
+)
 
 from .asm import MAX_PARAM, _validate_sweeper_value, convert
 
-__all__ = ["is_offset_rectangular"]
+__all__ = ["is_offset_rectangular", "reserve_sweep_durations"]
 
 
 def is_offset_rectangular(
@@ -71,6 +78,8 @@ class ParamRole(Enum):
     "Pulse I component."
     PULSE_Q = auto(), Parameter.duration
     "Pulse Q component."
+    COMPLEMENT = auto(), Parameter.duration
+    "Wait that completes the slot of a swept rectangular pulse (see :func:`slot`)."
 
     @classmethod
     def from_sweeper(cls, sweep: Sweeper) -> "ParamRole":
@@ -78,30 +87,6 @@ class ParamRole(Enum):
             if sweep.parameter is var.kind:
                 return var
         raise ValueError("Sweeper parameter kind does not correspond to any role.")
-
-    @classmethod
-    def single_register(cls, sweep: Sweeper) -> bool:
-        """Whether the sweeper can be served by a single value register.
-
-        Most sweepers require only one register. The primary exception is a duration
-        sweep over pulses played from waveform memory. These compile into ``play <I>,
-        <Q>, 4`` followed by ``wait <duration - 4>``, requiring three registers (the wait
-        duration and the `<I>` and `<Q>` waveform indices).
-
-        Duration sweeps remain single-register if they do not play waveforms, such as
-        standalone wait instructions or square pulses executed via offsets
-        (``set_awg_offs``).
-        """
-        # non-duration parameters always map to a single register
-        return sweep.parameter is not Parameter.duration or (
-            sweep.pulses is not None
-            # non-unique as soon as at least one target is a *played* pulse, i.e. a
-            # Pulse that is not realized through offsets
-            and not any(
-                isinstance(p, Pulse) and not is_offset_rectangular(p, sweep)
-                for p in sweep.pulses
-            )
-        )
 
     @property
     def kind(self):
@@ -123,6 +108,8 @@ class Param(Model):
     """The target channel (if the sweeper targets channels)."""
     loop: int | None = None
     """The loop which is associated to."""
+    limit: int | None = None
+    """The largest value of a duration sweep, i.e. the slot the pulse occupies."""
 
     @property
     def description(self) -> str:
@@ -143,6 +130,7 @@ class Param(Model):
         role: ParamRole,
         pulse: PulseLike | None,
         channel: ChannelId | None,
+        limit: int | None = None,
     ) -> "Param":
         """Create a Param from a sweep range with validation.
 
@@ -160,6 +148,7 @@ class Param(Model):
             pulse=pulse.id if pulse is not None else None,
             channel=channel,
             role=role,
+            limit=limit,
         )
 
 
@@ -203,38 +192,101 @@ def params_reshape(params: list[Param]) -> IndexedParams:
     }
 
 
-def _pulse_duration(sweep: Sweeper) -> list[tuple[Range, "ParamRole"]]:
-    """Reserve 3 registers for a pulse duration sweeper."""
-    return [
-        ((0, 2 * len(sweep), 2), ParamRole.PULSE_I),
-        ((1, 2 * len(sweep) + 1, 2), ParamRole.PULSE_Q),
-        (sweep.irange, ParamRole.DURATION),
-    ]
+# The instruction that ends a swept rectangular pulse, `upd_param 4`, is followed by a
+# wait that completes the slot. The wait cannot be shorter than 4 ns, so the slot is
+# that much longer than the longest pulse.
+RECTANGULAR_TAIL = 4
+MIN_WAVEFORM_SLOT = 8
+"""Shortest slot of a swept waveform pulse: `play` (4 ns) plus a wait of at least 4 ns."""
+
+
+def sweep_values(sweep: Sweeper) -> np.ndarray:
+    return np.arange(*sweep.irange)
+
+
+def slot(pulse: Pulse, sweep: Sweeper) -> float:
+    """Time reserved for a pulse whose duration is swept.
+
+    The pulse occupies the same time for every value of the sweep, so that everything
+    after it, on any channel, starts at the same time. A wait completes the slot after
+    the pulse. The slot is set by the longest value, so there is no need for a
+    different nominal duration, which would otherwise be what padding and alignment use.
+    """
+    longest = float(np.max(sweep_values(sweep)))
+    return (
+        longest + RECTANGULAR_TAIL
+        if is_offset_rectangular(pulse, sweep)
+        else max(longest, MIN_WAVEFORM_SLOT)
+    )
+
+
+def reserve_sweep_durations(
+    sequence: PulseSequence, sweepers: list[ParallelSweepers]
+) -> PulseSequence:
+    """Set the nominal duration of the swept pulses to the slot they occupy.
+
+    Padding and the alignment of channels are computed from nominal durations, so this
+    has to be done before them.
+    """
+    swept = swept_pulses(sweepers, {Parameter.duration})
+    return type(sequence)(
+        (
+            ch,
+            ev.model_copy(update={"duration": slot(ev, swept[ev.id])})
+            if isinstance(ev, Pulse) and ev.id in swept
+            else ev,
+        )
+        for ch, ev in sequence
+    )
 
 
 def _registers(sweep: Sweeper) -> list[tuple[Range, ParamRole]]:
-    """Reserve registers for sweeping."""
-    return (
-        [(sweep.irange, ParamRole.from_sweeper(sweep))]
-        if ParamRole.single_register(sweep)
-        else _pulse_duration(sweep)
-    )
+    """Reserve registers for sweeping.
+
+    Most sweepers require only one register. The exception is a duration sweep, where
+    the pulse is followed by a wait that keeps the length of its slot fixed:
+
+    - pulses played from waveform memory compile into ``play <I>, <Q>, 4`` followed by a
+      fixed wait, so the registers are the two waveform indices (the sequencer plays the
+      whole waveform by itself, whatever the wait);
+    - rectangular pulses realized as offsets need the duration and the complementary
+      wait, to end the pulse and to complete the slot;
+    - a swept delay is a single wait.
+    """
+    if sweep.parameter is not Parameter.duration:
+        return [(sweep.irange, ParamRole.from_sweeper(sweep))]
+    targets = sweep.pulses or []
+    pulses = [p for p in targets if isinstance(p, Pulse)]
+    played = any(not is_offset_rectangular(p, sweep) for p in pulses)
+    offset = any(is_offset_rectangular(p, sweep) for p in pulses)
+    start, _, step = sweep.irange
+    top = float(np.max(sweep_values(sweep)))
+    registers: list[tuple[Range, ParamRole]] = []
+    if played:
+        registers += [
+            ((0, 2 * len(sweep), 2), ParamRole.PULSE_I),
+            ((1, 2 * len(sweep) + 1, 2), ParamRole.PULSE_Q),
+        ]
+    if offset or len(pulses) < len(targets) or not targets:
+        registers.append((sweep.irange, ParamRole.DURATION))
+    if offset:
+        registers.append(
+            (
+                (top + RECTANGULAR_TAIL - start, 0, -step),
+                ParamRole.COMPLEMENT,
+            )
+        )
+    return registers
 
 
 def _duration_shift(role: ParamRole, pulse: PulseLike | None) -> int:
     """Shift of the register values for a swept pulse duration.
 
-    Pulses are generated either as a waveform or as an offset (for most rectangular
-    pulses). If their duration is swept, both cases consist of a 4 ns latch instruction
-    (either ``upd_param`` or ``play``) followed by a wait instruction:
+    Only rectangular pulses realized as offsets have a duration register, and they start
+    with a 4 ns latch instruction followed by a wait (see ``_process_rectangular``)::
 
-    - Rectangular pulses with duration >= 8 ns (via ``_process_rectangular``):
         upd_param 4
-        wait <duration>
-
-    - Any other pulse (via ``_play_duration_swept``):
-        play <I>, <Q>, 4
-        wait <duration>
+        wait <duration - 4>
 
     Any other duration sweeper requires no duration shift.
     """
@@ -256,6 +308,9 @@ def _unravel_sweeps(
                 role,
                 pulse,
                 channel,
+                limit=int(np.max(sweep_values(sweep)))
+                if sweep.parameter is Parameter.duration
+                else None,
             ),
         )
         # the first sweeper should be the outermost, thus reverse them during the

@@ -17,7 +17,6 @@ from ..q1asm.ast_ import (
     Lineable,
     Move,
     Play,
-    Register,
     SetAwgOffs,
     SetPhDelta,
     UpdParam,
@@ -27,6 +26,7 @@ from ..q1asm.ast_ import (
 from .acquisition import AcquisitionSpec, MeasureId
 from .asm import Registers, convert
 from .sweepers import (
+    MIN_WAVEFORM_SLOT,
     Param,
     ParameterizedPulse,
     ParamRole,
@@ -50,21 +50,26 @@ def _play_waveforms(pulse: Pulse, waveforms: WaveformIndices) -> Line:
     )
 
 
-def _play_duration_swept(registers: dict[ParamRole, Register]) -> list[Instruction]:
+def _play_duration_swept(params: dict[ParamRole, Param]) -> list[Instruction]:
+    """Play a waveform of swept duration.
+
+    The sequencer plays the whole selected waveform by itself, so the wait is the same
+    for every value of the sweep: the pulse always occupies the same slot.
+    """
     return [
         Play(
-            wave_0=registers[ParamRole.PULSE_I],
-            wave_1=registers[ParamRole.PULSE_Q],
+            wave_0=params[ParamRole.PULSE_I].reg,
+            wave_1=params[ParamRole.PULSE_Q].reg,
             duration=4,
         ),
-        Wait(duration=registers[ParamRole.DURATION]),
+        Wait(duration=max(params[ParamRole.PULSE_I].limit, MIN_WAVEFORM_SLOT) - 4),
     ]
 
 
 def _play_pulse(
     pulse: Pulse,
     waveforms: WaveformIndices,
-    duration_sweep: dict[ParamRole, Register],
+    duration_sweep: dict[ParamRole, Param],
 ) -> list[Instruction] | list[Line]:
     return (
         [_play_waveforms(pulse, waveforms)]
@@ -88,9 +93,16 @@ def _process_rectangular(pulse: Pulse, params: set[Param]) -> list[Lineable]:
 
     The trailing `upd_param` is needed because `wait` does not latch parameters,
     so the offset reset has to be explicitly applied at the pulse end.
+
+    If the duration is swept, one more wait follows, to keep the slot of the pulse the
+    same for every duration (see :func:`.sweepers.slot`).
     """
 
-    duration_sweep = {p.role: p.reg for p in params if p.role is ParamRole.DURATION}
+    duration_sweep = {
+        p.role: p.reg
+        for p in params
+        if p.role in (ParamRole.DURATION, ParamRole.COMPLEMENT)
+    }
     amplitude_sweep = {p.role: p.reg for p in params if p.role is ParamRole.AMPLITUDE}
 
     # The rectangular pulse is played only on path-0 (the I-channel). The value of the
@@ -131,6 +143,12 @@ def _process_rectangular(pulse: Pulse, params: set[Param]) -> list[Lineable]:
         Wait(duration=wait_duration),
         SetAwgOffs(value_0=0, value_1=0),
         UpdParam(duration=4),
+        *(
+            # completes the slot, whose length is then the same for every duration
+            [Wait(duration=duration_sweep[ParamRole.COMPLEMENT])]
+            if duration_sweep
+            else []
+        ),
     ]
 
 
@@ -148,9 +166,7 @@ def _process_pulse(
     accumulated phase deltas in Registers.phase_delta and must be applied with
     SetPhDelta before playing the pulse.
     """
-    duration_sweep = {
-        p.role: p.reg for p in params if p.role.value[1] is Parameter.duration
-    }
+    duration_sweep = {p.role: p for p in params if p.role.kind is Parameter.duration}
     # Rectangular pulses with duration >= 8 ns are implemented using `set_awg_offs`. For
     # all other pulses, waveforms are played.
     pulse_instructions = (

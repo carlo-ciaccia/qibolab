@@ -204,10 +204,10 @@ def test_batch_registers_deduplicate_repeated_pulse(parameter, envelope):
 
 
 def test_batch_registers_deduplicate_multiple_parameters():
-    """Gaussian pulses under a duration sweep each need 3 registers."""
+    """Gaussian pulses under a duration sweep each need 2 registers."""
     pulses: list[PulseLike] = [
         Pulse(duration=20, amplitude=0.1, envelope=Gaussian(rel_sigma=5))
-        for _ in range(20)
+        for _ in range(40)
     ]
     sequences = [PulseSequence([("0/drive", p)] * 2) for p in pulses]
     sweepers = normalize_sweepers(
@@ -222,8 +222,8 @@ def test_batch_registers_deduplicate_multiple_parameters():
         qrm_channels=set(),
     )
 
-    # Each unique Gaussian pulse ID needs three duration-sweep registers.
-    assert [len(b) for b in batches] == [19, 19, 2]
+    # Each unique Gaussian pulse ID needs two duration-sweep registers.
+    assert [len(b) for b in batches] == [28, 28, 24]
 
 
 def test_batch_registers_are_counted_per_channel():
@@ -361,7 +361,7 @@ def test_batch_registers_count_sweeper_only_channels(nparameters):
 
 
 def test_batch_registers_duration_sweeper_mixed_envelopes():
-    """Duration sweepers count registers per envelope type (Gaussian=3, Rectangular=1)."""
+    """Duration sweepers count registers per pulse (waveform and offset ones need 2)."""
     pulses: list[PulseLike] = [
         Pulse(duration=20, amplitude=0.1, envelope=Rectangular()) for _ in range(20)
     ]
@@ -370,9 +370,10 @@ def test_batch_registers_duration_sweeper_mixed_envelopes():
         [[Sweeper(parameter=Parameter.duration, range=(20, 40, 1), pulses=pulses)]]
     )
 
-    # only the Gaussian needs 3 registers, the rectangular pulses need 1 each
+    # the Gaussian needs the two waveform indices, the rectangular pulses (realized
+    # as offsets) the duration and the one that completes the slot
     counts = batching._pulse_sweep_register_counts(sweepers)
-    assert sum(counts.values()) == 20 + 3
+    assert sum(counts.values()) == 20 * 2 + 2
 
     batches = batching._split_sequences_by_memory_limits(
         [PulseSequence([("0/drive", p) for p in pulses])],
@@ -493,14 +494,15 @@ def test_register_budget_matches_compiler(averaging_mode, ndimensions):
 
 
 @pytest.mark.parametrize(
-    ("parameter", "envelope", "capacity"),
+    ("parameter", "envelope", "capacity", "budget"),
     [
-        (Parameter.amplitude, Rectangular(), 57),
-        (Parameter.duration, Rectangular(), 57),
-        (Parameter.duration, Gaussian(rel_sigma=5), 19),
+        (Parameter.amplitude, Rectangular(), 57, 64),
+        # two registers per pulse, so one register of the 64 is left unused
+        (Parameter.duration, Rectangular(), 28, 63),
+        (Parameter.duration, Gaussian(rel_sigma=5), 28, 63),
     ],
 )
-def test_register_limited_batches_match_compiler(parameter, envelope, capacity):
+def test_register_limited_batches_match_compiler(parameter, envelope, capacity, budget):
     """Prevent unnecessary splitting or register overflow at the compiler's limit."""
     pulses: list[PulseLike] = [
         Pulse(duration=20, amplitude=0.1, envelope=envelope) for _ in range(60)
@@ -532,7 +534,7 @@ def test_register_limited_batches_match_compiler(parameter, envelope, capacity):
         _assert_register_budget_matches_compiler(batch, sweepers, options)
         for batch in batches
     ]
-    assert budgets[0] == {ch: 64 for ch in channels}
+    assert budgets[0] == {ch: budget for ch in channels}
 
     oversized = PulseSequence(
         [(ch, pulse) for pulse in pulses[: capacity + 1] for ch in sorted(channels)]

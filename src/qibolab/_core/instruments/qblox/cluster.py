@@ -51,6 +51,7 @@ from .log import Logger
 from .qrc import assign_sequencers
 from .results import AcquiredData, extract, integration_lengths
 from .sequence import Q1Sequence, compile
+from .sequence.sweepers import reserve_sweep_durations
 from .utils import (
     batch_shots,
     concat_shots,
@@ -161,7 +162,10 @@ def _batch_sequences(
     # of the batch on.
     return [
         _align_latencies(
-            _add_time_of_flight(b, configs, uncompensated).align_to_delays(), latencies
+            _add_time_of_flight(
+                reserve_sweep_durations(b, sweepers), configs, uncompensated
+            ).align_to_delays(),
+            latencies,
         )
         for b in batched_seqs
     ]
