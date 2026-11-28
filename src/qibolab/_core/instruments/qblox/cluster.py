@@ -155,10 +155,14 @@ def _batch_sequences(
         if options.acquisition_type is not AcquisitionType.RAW
         else sequences
     )
+    # The ``Align`` commands that join the sequences of a batch are resolved *before*
+    # the latency shifts are added. Resolved afterwards, they would make every channel
+    # wait for the shifted ones, and the shifts would be lost from the second sequence
+    # of the batch on.
     return [
         _align_latencies(
-            _add_time_of_flight(b, configs, uncompensated), latencies
-        ).align_to_delays()
+            _add_time_of_flight(b, configs, uncompensated).align_to_delays(), latencies
+        )
         for b in batched_seqs
     ]
 
