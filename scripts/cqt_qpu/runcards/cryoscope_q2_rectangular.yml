@@ -12,6 +12,7 @@
 # because a flux pulse shorter than 4 ns made the Qblox sequencer hang.
 # Needs the Qibocal branch cryoscope-rectangular-flux of the fork carlo-ciaccia/qibocal and the
 # Qblox driver of the branch cryoscope-testing of qibolab (swept durations keep their slot).
+# separate_executes: false sends MX and MY in one execution, to check the latency fix (flat Y before it).
 # Long window (200 ns, 4000 shots) of cryoscope_q2.yml; the second action uses the filters derived by the first.
 # flux_pulse_amplitude: the flux_coefficients of calibration.json were fitted up to about
 # 0.32 (detuning 0.24 GHz), keep the amplitude below that.
@@ -28,6 +29,7 @@ actions:
       nshots: 2000
       duration_max: 200
       duration_min: 4
+      separate_executes: false
       flux_pulse_amplitude: 0.3
       fir: 32
       iir: true
@@ -39,6 +41,7 @@ actions:
       nshots: 2000
       duration_max: 200
       duration_min: 4
+      separate_executes: false
       flux_pulse_amplitude: 0.3
       fir: 32
       iir: true
