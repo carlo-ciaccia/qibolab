@@ -1,0 +1,49 @@
+# Cryoscope of the flux line of q2 over 200 ns, run with Qibocal on the fieldlab cluster:
+#
+#   export QIBOLAB_PLATFORMS=~/Code/qibolab/platforms
+#   ~/Code/qibocal/.venv/bin/qq run scripts/cqt_qpu/runcards/cryoscope_q2.yml -o <folder> -f
+#
+# The first action measures the step response of the flux line without any filter and
+# derives the filters. The platform is updated in memory between actions (the files in
+# platforms/ are not touched by `qq run`), so the second action applies those filters and
+# its "Waveform with filters applied" trace should be flat.
+# Plain Rectangular flux pulse (no padding): from 8 ns the level is an AWG offset and needs no
+# waveform memory, only the 4-7 ns points are waveforms (a small separate sweep). duration_min 4
+# because a flux pulse shorter than 4 ns made the Qblox sequencer hang.
+# Needs the Qibocal branch cryoscope-rectangular-flux of the fork carlo-ciaccia/qibocal and the
+# Qblox driver of the branch cryoscope-testing of qibolab (swept durations keep their slot).
+# separate_executes: false sends MX and MY in one execution, to check the latency fix (flat Y before it).
+# Long window (200 ns, 4000 shots) of cryoscope_q2.yml; the second action uses the filters derived by the first.
+# flux_pulse_amplitude: the flux_coefficients of calibration.json were fitted up to about
+# 0.32 (detuning 0.24 GHz), keep the amplitude below that.
+backend: qibolab
+platform: CQT_QPU
+
+targets: [q2]
+
+actions:
+
+  - id: cryoscope
+    operation: cryoscope
+    parameters:
+      nshots: 2000
+      duration_max: 200
+      duration_min: 4
+      separate_executes: false
+      flux_pulse_amplitude: 0.3
+      fir: 32
+      iir: true
+      relaxation_time: 50000
+
+  - id: cryoscope with filters
+    operation: cryoscope
+    parameters:
+      nshots: 2000
+      duration_max: 200
+      duration_min: 4
+      separate_executes: false
+      flux_pulse_amplitude: 0.3
+      fir: 32
+      iir: true
+      use_existing_filter: true
+      relaxation_time: 50000

@@ -220,3 +220,34 @@ def test_the_batched_readout_of_a_qrc_has_the_time_of_flight_without_the_340_ns(
     )
 
     assert next(e for _, e in batched if isinstance(e, Readout)).time_of_flight == 300
+
+
+def starts(sequence: PulseSequence, channel: str) -> list[float]:
+    """Start time of each pulse of a channel, from the beginning of the sequence."""
+    time, result = 0.0, []
+    for _, event in (e for e in sequence if e[0] == channel):
+        if isinstance(event, Pulse):
+            result.append(time)
+        time += event.duration
+    return result
+
+
+def test_the_latency_alignment_holds_for_every_sequence_of_a_batch():
+    """The channels keep their relative delay in the second sequence of a batch.
+
+    The sequences of a batch are joined with ``Align`` commands. They have to become
+    delays *before* the latency shifts are added, or the flux channel is made to wait
+    for the delayed QRC ones and the shift is lost from the second sequence on.
+    """
+    options = ExecutionParameters(nshots=1, relaxation_time=100)
+    sequence = PulseSequence([(FLUX, pulse()), (DRIVE, pulse())])
+    latencies = cluster()._channel_latencies()
+
+    (batched,) = _batch_sequences(
+        [sequence, sequence], [], options, {FLUX}, {DRIVE, READOUT}, {}, None, latencies
+    )
+
+    flux, drive = starts(batched, FLUX), starts(batched, DRIVE)
+    assert len(flux) == len(drive) == 2
+    assert drive[0] - flux[0] == pytest.approx(OFFSET)
+    assert drive[1] - flux[1] == pytest.approx(OFFSET)
